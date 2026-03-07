@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TheEye DataAPI — Test Dashboard</title>
+  <style>
+    :root { --bg: #0d1117; --card: #161b22; --border: #30363d; --text: #c9d1d9; --accent: #58a6ff; --green: #3fb950; --red: #f85149; --yellow: #d29922; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); padding: 1.5rem; }
+    h1 { color: var(--accent); margin-bottom: 0.25rem; font-size: 1.6rem; }
+    .subtitle { color: #8b949e; margin-bottom: 1.5rem; font-size: 0.9rem; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 1rem; margin-bottom: 1rem; }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; }
+    .card h2 { font-size: 1rem; color: var(--accent); margin-bottom: 0.75rem; display: flex; align-items: center; gap: 0.5rem; }
+    .card h2 .badge { font-size: 0.7rem; background: var(--border); padding: 2px 8px; border-radius: 10px; color: #8b949e; }
+    label { display: block; font-size: 0.8rem; color: #8b949e; margin-bottom: 0.25rem; }
+    input { background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 0.4rem 0.6rem; border-radius: 4px; width: 100%; margin-bottom: 0.5rem; font-size: 0.85rem; }
+    button { background: var(--accent); color: #fff; border: none; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer; font-size: 0.85rem; font-weight: 600; transition: opacity 0.2s; }
+    button:hover { opacity: 0.85; }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+    pre { background: #010409; color: var(--green); padding: 0.75rem; border-radius: 4px; font-size: 0.78rem; max-height: 320px; overflow: auto; margin-top: 0.5rem; white-space: pre-wrap; word-break: break-word; }
+    pre.error { color: var(--red); }
+    .status-bar { display: flex; gap: 1rem; align-items: center; margin-bottom: 1.5rem; }
+    .status-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+    .status-dot.ok { background: var(--green); }
+    .status-dot.fail { background: var(--red); }
+    .status-dot.unknown { background: var(--border); }
+    .status-text { font-size: 0.85rem; }
+    .row { display: flex; gap: 0.5rem; align-items: end; }
+    .row > * { flex: 1; }
+    .row button { flex: 0 0 auto; margin-bottom: 0.5rem; }
+  </style>
+</head>
+<body>
+
+<h1>🔭 TheEye DataAPI — Test Dashboard</h1>
+<p class="subtitle">Live API exposure tester — all requests proxied through the backend (API keys never touch the browser).</p>
+
+<div class="status-bar">
+  <span class="status-dot unknown" id="health-dot"></span>
+  <span class="status-text" id="health-text">Click "Health" to check API status</span>
+</div>
+
+<div class="grid">
+
+  <!-- Health -->
+  <div class="card">
+    <h2>Health <span class="badge">GET /health</span></h2>
+    <button id="btn-health">Check Health</button>
+    <pre id="health-out">—</pre>
+  </div>
+
+  <!-- Tickers -->
+  <div class="card">
+    <h2>Tickers <span class="badge">GET /api/v1/tickers</span></h2>
+    <button id="btn-tickers">List All Tickers</button>
+    <pre id="tickers-out">—</pre>
+  </div>
+
+  <!-- AI Ticker Deep Dive -->
+  <div class="card">
+    <h2>AI Ticker Intel <span class="badge">GET /api/v1/ai/ticker/:ticker</span></h2>
+    <div class="row">
+      <div><label>Ticker</label><input id="ai-ticker-in" value="AAPL" /></div>
+      <button id="btn-ai-ticker">Fetch</button>
+    </div>
+    <pre id="ai-ticker-out">—</pre>
+  </div>
+
+  <!-- Technical Indicators -->
+  <div class="card">
+    <h2>Technical Indicators <span class="badge">GET /api/v1/indicators/:ticker/technical</span></h2>
+    <div class="row">
+      <div><label>Ticker</label><input id="tech-ticker-in" value="AAPL" /></div>
+      <button id="btn-technical">Fetch</button>
+    </div>
+    <pre id="tech-out">—</pre>
+  </div>
+
+  <!-- Fundamentals -->
+  <div class="card">
+    <h2>Fundamentals (Income) <span class="badge">GET /api/v1/fundamentals/:ticker/income</span></h2>
+    <div class="row">
+      <div><label>Ticker</label><input id="fund-ticker-in" value="AAPL" /></div>
+      <button id="btn-fundamentals">Fetch</button>
+    </div>
+    <pre id="fund-out">—</pre>
+  </div>
+
+  <!-- Risk -->
+  <div class="card">
+    <h2>Risk Indicators <span class="badge">GET /api/v1/indicators/:ticker/risk</span></h2>
+    <div class="row">
+      <div><label>Ticker</label><input id="risk-ticker-in" value="AAPL" /></div>
+      <button id="btn-risk">Fetch</button>
+    </div>
+    <pre id="risk-out">—</pre>
+  </div>
+
+  <!-- AI Context -->
+  <div class="card">
+    <h2>AI Engine Context <span class="badge">GET /api/v1/ai/context</span></h2>
+    <button id="btn-ai-context">Fetch AI Context</button>
+    <pre id="ai-ctx-out">—</pre>
+  </div>
+
+  <!-- AI Signals -->
+  <div class="card">
+    <h2>AI Signals <span class="badge">GET /api/v1/ai/signals</span></h2>
+    <button id="btn-ai-signals">Fetch Signals</button>
+    <pre id="ai-signals-out">—</pre>
+  </div>
+
+  <!-- AI Portfolio -->
+  <div class="card">
+    <h2>AI Portfolio <span class="badge">GET /api/v1/ai/portfolio</span></h2>
+    <button id="btn-ai-portfolio">Fetch Portfolio</button>
+    <pre id="ai-portfolio-out">—</pre>
+  </div>
+
+  <!-- Latest News -->
+  <div class="card">
+    <h2>Latest News <span class="badge">GET /api/news/latest</span></h2>
+    <button id="btn-news-latest">Fetch Latest News</button>
+    <pre id="news-out">—</pre>
+  </div>
+
+  <!-- News Stats -->
+  <div class="card">
+    <h2>News Stats <span class="badge">GET /api/news/stats</span></h2>
+    <button id="btn-news-stats">Fetch Stats</button>
+    <pre id="news-stats-out">—</pre>
+  </div>
+
+  <!-- Charting Prices -->
+  <div class="card">
+    <h2>Charting Prices <span class="badge">GET /api/v1/charting/:ticker/prices</span></h2>
+    <div class="row">
+      <div><label>Ticker</label><input id="chart-ticker-in" value="AAPL" /></div>
+      <button id="btn-chart-prices">Fetch</button>
+    </div>
+    <pre id="chart-out">—</pre>
+  </div>
+
+</div>
+<script type="module" src="./client.js"></script>
+
+</body>
+</html>
