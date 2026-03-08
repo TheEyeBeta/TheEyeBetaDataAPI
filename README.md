@@ -52,11 +52,20 @@ cd /home/the-eye-beta/TheEyeBeta2025/TheEyeBetaDataAPI
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env
+python scripts/bootstrap_local_env.py \
+  --database-url "postgresql+psycopg://postgres:REPLACE_ME@host.docker.internal:5432/TheEyeBeta2025Live"
 bash scripts/run_production.sh
 ```
 
 Default bind: `127.0.0.1:7000`
+
+If you are running behind Cloudflare Tunnel locally, generate `.env` with trusted proxy headers enabled:
+
+```bash
+python scripts/bootstrap_local_env.py \
+  --database-url "postgresql+psycopg://postgres:REPLACE_ME@host.docker.internal:5432/TheEyeBeta2025Live" \
+  --trust-proxy-headers
+```
 
 ## Quick verification
 
