@@ -124,6 +124,10 @@ python scripts/rotate_secrets.py
 
 This rotates `JWT_SECRET`, `USER_JWT_SECRET`, and all `SERVICE_CLIENTS_JSON` client secrets.
 
+## Laptop E2E test
+
+Use [OTHEREND_TEST.md](/home/the-eye-beta/TheEyeBeta2025/TheEyeBetaDataAPI/OTHEREND_TEST.md) for a complete laptop verification workflow with sample successful responses.
+
 ## TypeScript frontend tester
 
 ```bash
