@@ -67,3 +67,21 @@ class MarketDataRepository(Protocol):
         params: dict[str, Any],
     ) -> InternalJobReceipt:
         """Record and return internal job command."""
+
+    def get_table_row_counts(self) -> list[dict[str, Any]]:
+        """Return row counts for key tables."""
+
+    def get_engine_worker_heartbeats(self) -> list[dict[str, Any]]:
+        """Return engine worker heartbeat rows."""
+
+    def execute_readonly_query(self, query: str, limit: int = 100) -> list[dict[str, Any]]:
+        """Execute a read-only SQL query and return results."""
+
+    def get_database_version(self) -> str:
+        """Return PostgreSQL version string."""
+
+    def get_active_ticker_count(self) -> int:
+        """Return count of active tickers."""
+
+    def get_service_client_summary(self) -> list[dict[str, Any]]:
+        """Return summary of service clients from iam schema."""

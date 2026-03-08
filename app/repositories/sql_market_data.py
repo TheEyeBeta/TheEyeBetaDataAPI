@@ -529,6 +529,125 @@ class SQLMarketDataRepository(MarketDataRepository):
             logger.exception("get_admin_audit_events failed")
             raise DatabaseUnavailableError("Unable to fetch admin audit events") from exc
 
+    def get_table_row_counts(self) -> list[dict[str, Any]]:
+        try:
+            tables = [
+                "tickers", "latest_snapshot", "market_news", "paper_trades",
+                "portfolio_positions", "portfolio_valuation",
+                "trask_command_log", "trask_recent_events",
+            ]
+            results = []
+            for table in tables:
+                try:
+                    row = self._session.execute(
+                        text(f"SELECT COUNT(*) AS cnt FROM {table}")  # noqa: S608
+                    ).mappings().first()
+                    results.append({"table": table, "row_count": int(row["cnt"]) if row else 0})
+                except SQLAlchemyError:
+                    results.append({"table": table, "row_count": -1, "error": "table not found"})
+                    self._session.rollback()
+            return results
+        except SQLAlchemyError as exc:
+            logger.exception("get_table_row_counts failed")
+            raise DatabaseUnavailableError("Unable to fetch table counts") from exc
+
+    def get_engine_worker_heartbeats(self) -> list[dict[str, Any]]:
+        try:
+            rows = self._session.execute(
+                text(
+                    """
+                    SELECT
+                        worker_name,
+                        status,
+                        last_heartbeat,
+                        EXTRACT(EPOCH FROM (NOW() - last_heartbeat))::int AS seconds_ago,
+                        metadata
+                    FROM engine_worker_heartbeats
+                    ORDER BY worker_name
+                    """
+                )
+            ).mappings().all()
+            return [
+                {
+                    "worker_name": str(row["worker_name"]),
+                    "status": str(row["status"]) if row.get("status") else "unknown",
+                    "last_heartbeat": str(row["last_heartbeat"]) if row.get("last_heartbeat") else None,
+                    "seconds_ago": int(row["seconds_ago"]) if row.get("seconds_ago") is not None else None,
+                    "metadata": row.get("metadata") if isinstance(row.get("metadata"), dict) else None,
+                }
+                for row in rows
+            ]
+        except SQLAlchemyError:
+            logger.warning("engine_worker_heartbeats table not available")
+            return []
+
+    def execute_readonly_query(self, query: str, limit: int = 100) -> list[dict[str, Any]]:
+        normalized = query.strip().rstrip(";").strip()
+        upper = normalized.upper()
+        if not upper.startswith("SELECT"):
+            raise ValidationAppError("Only SELECT queries are allowed")
+        forbidden = {"INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "TRUNCATE", "CREATE", "GRANT", "REVOKE", "EXECUTE"}
+        for keyword in forbidden:
+            if keyword in upper:
+                raise ValidationAppError(f"Query contains forbidden keyword: {keyword}")
+        try:
+            limited_query = f"SELECT * FROM ({normalized}) AS _q LIMIT :_limit"
+            rows = self._session.execute(text(limited_query), {"_limit": limit}).mappings().all()
+            return [
+                {k: (str(v) if v is not None else None) for k, v in dict(row).items()}
+                for row in rows
+            ]
+        except SQLAlchemyError as exc:
+            logger.exception("execute_readonly_query failed")
+            raise DatabaseUnavailableError(f"Query failed: {exc}") from exc
+
+    def get_database_version(self) -> str:
+        try:
+            row = self._session.execute(text("SELECT version()")).mappings().first()
+            return str(row["version"]) if row else "unknown"
+        except SQLAlchemyError:
+            return "unavailable"
+
+    def get_active_ticker_count(self) -> int:
+        try:
+            row = self._session.execute(
+                text("SELECT COUNT(*) AS cnt FROM tickers WHERE is_active = true")
+            ).mappings().first()
+            return int(row["cnt"]) if row else 0
+        except SQLAlchemyError:
+            return -1
+
+    def get_service_client_summary(self) -> list[dict[str, Any]]:
+        try:
+            rows = self._session.execute(
+                text(
+                    """
+                    SELECT
+                        sc.client_id,
+                        sc.display_name,
+                        sc.is_active,
+                        sc.created_at,
+                        (SELECT COUNT(*) FROM iam.service_client_scopes scs
+                         WHERE scs.client_id = sc.client_id) AS scope_count
+                    FROM iam.service_clients sc
+                    ORDER BY sc.client_id
+                    """
+                )
+            ).mappings().all()
+            return [
+                {
+                    "client_id": str(row["client_id"]),
+                    "display_name": str(row["display_name"]) if row.get("display_name") else None,
+                    "is_active": bool(row["is_active"]),
+                    "created_at": str(row["created_at"]) if row.get("created_at") else None,
+                    "scope_count": int(row["scope_count"]) if row.get("scope_count") is not None else 0,
+                }
+                for row in rows
+            ]
+        except SQLAlchemyError:
+            logger.warning("iam.service_clients table not available")
+            return []
+
     def enqueue_internal_job(
         self,
         *,
