@@ -21,6 +21,8 @@ Secure multi-client data access layer between private PostgreSQL and external/in
   - either symmetric secret validation (`USER_JWT_SECRET`) or OIDC/JWKS (`USER_JWT_JWKS_URL`)
 - Service auth:
   - client credentials -> scoped bearer token via `POST /api/v1/auth/service-token`
+  - credentials are validated from PostgreSQL `iam` tables when `SERVICE_CLIENT_AUTH_MODE=database`
+  - optional fallback modes: `environment` or `hybrid`
   - optional direct mTLS principal flow (no bearer) via trusted proxy headers:
     - `X-Service-Client-Id`
     - `X-Client-Cert-Subject`
@@ -132,6 +134,20 @@ python scripts/rotate_secrets.py
 ```
 
 This rotates `JWT_SECRET`, `USER_JWT_SECRET`, and all `SERVICE_CLIENTS_JSON` client secrets.
+
+## DB-backed API key schema
+
+See [API_KEY_SCHEMA_RUNBOOK.md](/home/the-eye-beta/TheEyeBeta2025/TheEyeBetaDataAPI/docs/API_KEY_SCHEMA_RUNBOOK.md) for PostgreSQL schema and provisioning/rotation SQL for DB-backed service API keys.
+
+Provision/update a DB-backed service credential from CLI:
+
+```bash
+python scripts/provision_db_service_client.py \
+  --client-id vi-backend-prod \
+  --display-name "VI Backend Prod" \
+  --app-type vi-backend \
+  --allow-existing
+```
 
 ## Laptop E2E test
 

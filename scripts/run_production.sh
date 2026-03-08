@@ -4,7 +4,15 @@ set -euo pipefail
 api_host_override="${API_HOST:-}"
 api_port_override="${API_PORT:-}"
 gunicorn_workers_override="${GUNICORN_WORKERS:-}"
-python_bin="${PYTHON_BIN:-python3}"
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+venv_python="${repo_root}/.venv/bin/python"
+if [ -n "${PYTHON_BIN:-}" ]; then
+  python_bin="${PYTHON_BIN}"
+elif [ -x "${venv_python}" ]; then
+  python_bin="${venv_python}"
+else
+  python_bin="python3"
+fi
 if ! command -v "${python_bin}" >/dev/null 2>&1; then
   python_bin="python"
 fi
@@ -12,6 +20,7 @@ if ! command -v "${python_bin}" >/dev/null 2>&1; then
   echo "Python interpreter not found. Set PYTHON_BIN or install python3."
   exit 1
 fi
+PATH="$(dirname "${python_bin}"):${PATH}"
 
 # Load .env safely without shell-evaluating values like JSON.
 if [ -f ".env" ]; then

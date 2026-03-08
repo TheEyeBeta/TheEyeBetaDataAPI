@@ -154,6 +154,7 @@ def main() -> int:
 
     # Local-safe default: do not trust forwarded headers unless requested.
     values["TRUST_PROXY_HEADERS"] = "true" if args.trust_proxy_headers else "false"
+    values["SERVICE_CLIENT_AUTH_MODE"] = "database"
     values.setdefault("API_HOST", "127.0.0.1")
     values.setdefault("API_PORT", "7000")
 

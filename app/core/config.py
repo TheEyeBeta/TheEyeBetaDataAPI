@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     user_jwt_algorithms: str = "RS256"
 
     service_token_expires_minutes: int = 60
+    service_client_auth_mode: str = "database"
     service_clients_json: str = "{}"
     service_mtls_enabled: bool = False
     service_mtls_subjects_json: str = "{}"
@@ -90,6 +91,15 @@ class Settings(BaseSettings):
             raise ValueError("service_token_expires_minutes must be between 5 and 1440")
         return value
 
+    @field_validator("service_client_auth_mode")
+    @classmethod
+    def validate_service_client_auth_mode(cls, value: str) -> str:
+        allowed = {"database", "environment", "hybrid"}
+        normalized = value.lower().strip()
+        if normalized not in allowed:
+            raise ValueError(f"service_client_auth_mode must be one of {allowed}")
+        return normalized
+
     @field_validator("service_mtls_header_client_id", "service_mtls_header_subject")
     @classmethod
     def validate_mtls_header_names(cls, value: str) -> str:
@@ -117,8 +127,9 @@ class Settings(BaseSettings):
                 raise ValueError("USER_JWT_JWKS_URL must be https:// in production")
         if self.service_mtls_enabled and not self.trust_proxy_headers:
             raise ValueError("SERVICE_MTLS_ENABLED requires TRUST_PROXY_HEADERS=true")
-        # Validate service client JSON schema at startup.
-        _ = self.parsed_service_clients
+        if self.service_client_auth_mode in {"environment", "hybrid"}:
+            # Validate env-configured service client JSON when used.
+            _ = self.parsed_service_clients
         _ = self.parsed_service_mtls_subjects
         return self
 

@@ -14,7 +14,8 @@ Set `.env` from `.env.example` and configure:
 - Core:
   - `DATABASE_URL`
   - `JWT_SECRET`, `JWT_ISSUER`, `JWT_AUDIENCE`
-  - `SERVICE_CLIENTS_JSON`
+  - `SERVICE_CLIENT_AUTH_MODE=database`
+  - DB-backed client credentials in `iam.service_clients` / `iam.service_client_secrets`
   - `TRUSTED_HOSTS`, `CORS_ORIGINS`, `TRUST_PROXY_HEADERS=true`
 - User JWT mode (pick one):
   - Symmetric: `USER_JWT_SECRET` (+ `USER_JWT_ALGORITHM`)
@@ -97,7 +98,9 @@ bash scripts/verify_remote_access.sh
 
 ## 6) Security operations
 
-- Rotate JWT and service-client secrets periodically:
+- Provision or rotate DB-backed service credentials:
+  - `python scripts/provision_db_service_client.py --client-id <id> --display-name \"...\" --app-type <type> --allow-existing`
+- Rotate JWT secrets separately (app token signing secrets in `.env`):
   - `python scripts/rotate_secrets.py`
 - Keep service scopes minimal per consumer.
 - Use distinct principals per consumer (mobile backend, VI, trade engine, admin/internal).

@@ -17,6 +17,7 @@ os.environ.setdefault("JWT_AUDIENCE", "theeyebeta-clients-test")
 os.environ.setdefault("USER_JWT_SECRET", "test-user-jwt-secret-which-is-24chars")
 os.environ.setdefault("USER_JWT_ALGORITHM", "HS256")
 os.environ.setdefault("SERVICE_TOKEN_EXPIRES_MINUTES", "60")
+os.environ.setdefault("SERVICE_CLIENT_AUTH_MODE", "environment")
 os.environ.setdefault(
     "SERVICE_CLIENTS_JSON",
     '{"trade-engine":{"secret":"trade-engine-secret-which-is-24chars","scopes":["trades:write","portfolio:read","internal:jobs"]},'
