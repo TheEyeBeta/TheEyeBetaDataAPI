@@ -140,12 +140,12 @@ Use [OTHEREND_TEST.md](/home/the-eye-beta/TheEyeBeta2025/TheEyeBetaDataAPI/OTHER
 ## TypeScript frontend tester
 
 ```bash
-cd frontend
+cd /home/the-eye-beta/TheEyeBeta2025/TheEyeBetaDataAPIFrontendSanity
 npm install
 npm start
 ```
 
-Configure `frontend/.env` with `SERVICE_CLIENT_ID` and `SERVICE_CLIENT_SECRET`.
+Configure `/home/the-eye-beta/TheEyeBeta2025/TheEyeBetaDataAPIFrontendSanity/.env` with `SERVICE_CLIENT_ID` and `SERVICE_CLIENT_SECRET` (or copy `.env.example` to `.env` and fill values).
 
 ## Reusable plugin
 
