@@ -2,21 +2,22 @@
 
 from fastapi.testclient import TestClient
 
+from app.api.dependencies.services import get_health_service
 from app.main import app
+from app.schemas.health import HealthResponse
 
 
-class _DummySession:
-    closed = False
+class _FakeHealthService:
+    def __init__(self, ok: bool) -> None:
+        self.ok = ok
 
-    def close(self) -> None:
-        self.closed = True
+    def get_health(self) -> HealthResponse:
+        return HealthResponse(status="healthy" if self.ok else "degraded", database=self.ok)
 
 
 def test_root_endpoint_has_basic_metadata() -> None:
     client = TestClient(app)
-
     response = client.get("/")
-
     assert response.status_code == 200
     payload = response.json()
     assert payload["name"] == "TheEyeBetaDataAPI"
@@ -24,28 +25,19 @@ def test_root_endpoint_has_basic_metadata() -> None:
     assert "version" in payload
 
 
-def test_health_returns_healthy_when_db_ok(monkeypatch) -> None:
+def test_health_returns_healthy_when_db_ok() -> None:
+    app.dependency_overrides[get_health_service] = lambda: _FakeHealthService(ok=True)
     client = TestClient(app)
-    dummy = _DummySession()
-
-    monkeypatch.setattr("app.api.routes.health.get_db_session", lambda: dummy)
-    monkeypatch.setattr("app.api.routes.health.db_health", lambda _session: True)
-
     response = client.get("/health")
-
     assert response.status_code == 200
     assert response.json() == {"status": "healthy", "database": True}
-    assert dummy.closed is True
+    app.dependency_overrides.clear()
 
 
-def test_health_returns_degraded_when_db_unhealthy(monkeypatch) -> None:
+def test_health_returns_degraded_when_db_unhealthy() -> None:
+    app.dependency_overrides[get_health_service] = lambda: _FakeHealthService(ok=False)
     client = TestClient(app)
-    dummy = _DummySession()
-
-    monkeypatch.setattr("app.api.routes.health.get_db_session", lambda: dummy)
-    monkeypatch.setattr("app.api.routes.health.db_health", lambda _session: False)
-
     response = client.get("/health")
-
     assert response.status_code == 200
     assert response.json() == {"status": "degraded", "database": False}
+    app.dependency_overrides.clear()

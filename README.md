@@ -1,24 +1,51 @@
 # TheEyeBetaDataAPI
 
-Internet-exposed FastAPI service for read-only market-data context and AI-assisted responses.
+Secure multi-client data access layer between private PostgreSQL and external/internal consumers.
 
-## Runtime and entrypoints
+## Architecture model
 
-- Framework: FastAPI + Uvicorn/Gunicorn
-- App entrypoint: `app.main:app`
-- Development run command: `bash scripts/run_local.sh`
-- Production run command: `bash scripts/run_production.sh`
-- Default host/port for host deployment: `127.0.0.1:7000`
+- Private DB is reachable only by this API service.
+- API contracts are domain-oriented and versioned under `/api/v1`.
+- Layering is enforced:
+  - routes/controllers
+  - auth dependencies (principal + scopes)
+  - services/use-cases
+  - repositories (SQL only)
+  - domain models/errors
+- Structured API errors are returned for auth, validation, and DB failures.
 
-## API endpoints
+## Auth model
 
-- `GET /`
+- User auth:
+  - bearer JWT
+  - either symmetric secret validation (`USER_JWT_SECRET`) or OIDC/JWKS (`USER_JWT_JWKS_URL`)
+- Service auth:
+  - client credentials -> scoped bearer token via `POST /api/v1/auth/service-token`
+  - optional direct mTLS principal flow (no bearer) via trusted proxy headers:
+    - `X-Service-Client-Id`
+    - `X-Client-Cert-Subject`
+- Scope examples:
+  - `market:read`
+  - `analytics:read`
+  - `trades:write`
+  - `admin:*`
+
+## Capability route groups
+
 - `GET /health`
-- `POST /api/v1/auth/token` (requires `X-API-Key`)
-- `GET /api/v1/context` (requires API key or Bearer JWT)
-- `POST /api/v1/chat` (requires API key or Bearer JWT)
+- `POST /api/v1/auth/service-token`
+- `GET /api/v1/market-data/quotes`
+- `GET /api/v1/symbols/search`
+- `GET /api/v1/analytics/snapshots/{ticker}`
+- `GET /api/v1/advisor/context` (alias: `GET /api/v1/context`)
+- `POST /api/v1/advisor/chat` (alias: `POST /api/v1/chat`)
+- `GET /api/v1/signals/latest`
+- `GET /api/v1/portfolio/state` (ownership-aware)
+- `POST /api/v1/trades/orders` (idempotency key required)
+- `GET /api/v1/admin/audit-events`
+- `POST /api/v1/internal/jobs/rebuild-indicators`
 
-## Quick start
+## Local run
 
 ```bash
 cd /home/the-eye-beta/TheEyeBeta2025/TheEyeBetaDataAPI
@@ -26,38 +53,46 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
-# edit .env with real values
-bash scripts/run_local.sh
+bash scripts/run_production.sh
 ```
 
-Swagger docs: `http://127.0.0.1:7000/docs`
+Default bind: `127.0.0.1:7000`
 
-## Required environment variables
+## Quick verification
 
-Minimum required values:
+```bash
+curl -s http://127.0.0.1:7000/health
+```
 
-- `DATABASE_URL`
-- `API_KEY` (24+ chars)
-- `JWT_SECRET` (24+ chars)
+Service token flow:
 
-Recommended production values:
+```bash
+TOKEN=$(curl -s -X POST "http://127.0.0.1:7000/api/v1/auth/service-token" \
+  -u "vi-app:<SERVICE_SECRET>" \
+  -H "Content-Type: application/json" \
+  -d '{"requested_scopes":["advisor:read","market:read","signals:read"]}' \
+  | sed -n 's/.*"access_token":"\([^"]*\)".*/\1/p')
 
-- `ENVIRONMENT=production`
-- `DEBUG=false`
-- `API_HOST=127.0.0.1`
-- `API_PORT=7000`
-- `TRUST_PROXY_HEADERS=true` (when behind Cloudflare Tunnel/reverse proxy)
-- `TRUSTED_HOSTS=api.theeyebeta.store,dataapi.theeyebeta.store,127.0.0.1,localhost`
-- `CORS_ORIGINS=https://theeyebeta.store`
-- `RATE_LIMIT_PER_MINUTE=120`
+curl -s "http://127.0.0.1:7000/api/v1/advisor/context?ticker=AAPL" \
+  -H "Authorization: Bearer ${TOKEN}"
+```
 
-## Cloudflare Tunnel mapping (recommended)
+Remote smoke:
 
-Run this API on loopback and point Cloudflare Tunnel to:
+```bash
+API_BASE_URL="https://api.theeyebeta.store" \
+SERVICE_CLIENT_ID="vi-app" \
+SERVICE_CLIENT_SECRET="<SERVICE_SECRET>" \
+bash scripts/verify_remote_access.sh
+```
+
+## Cloudflare Tunnel origin
+
+Use:
 
 - `http://127.0.0.1:7000`
 
-Example `cloudflared` ingress:
+Example ingress:
 
 ```yaml
 ingress:
@@ -68,35 +103,28 @@ ingress:
   - service: http_status:404
 ```
 
-## Verification
+## Optional production hardening toggles
 
-Local:
+- OIDC/JWKS user JWT validation:
+  - `USER_JWT_JWKS_URL`, `USER_JWT_ISSUER`, `USER_JWT_AUDIENCE`, `USER_JWT_ALGORITHMS`
+- Redis rate limiting backend:
+  - `REDIS_URL`, `RATE_LIMIT_REDIS_PREFIX`
+- mTLS service principal flow:
+  - `SERVICE_MTLS_ENABLED=true`
+  - `SERVICE_MTLS_SUBJECTS_JSON`
+  - `TRUST_PROXY_HEADERS=true`
 
-```bash
-curl -s http://127.0.0.1:7000/
-curl -s http://127.0.0.1:7000/health
-```
-
-Authenticated context request:
-
-```bash
-curl -s -H "X-API-Key: $API_KEY" "http://127.0.0.1:7000/api/v1/context?ticker=AAPL"
-```
-
-Remote smoke test (after Tunnel is configured):
+## Rotate local secrets
 
 ```bash
-API_BASE_URL="https://api.theeyebeta.store" API_KEY="$API_KEY" bash scripts/verify_remote_access.sh
+cd /home/the-eye-beta/TheEyeBeta2025/TheEyeBetaDataAPI
+source .venv/bin/activate
+python scripts/rotate_secrets.py
 ```
+
+This rotates `JWT_SECRET`, `USER_JWT_SECRET`, and all `SERVICE_CLIENTS_JSON` client secrets.
 
 ## TypeScript frontend tester
-
-The test dashboard is now TypeScript-based:
-
-- Server source: `frontend/src/server.ts`
-- Browser source: `frontend/src/client.ts`
-
-Run on any computer:
 
 ```bash
 cd frontend
@@ -104,44 +132,16 @@ npm install
 npm start
 ```
 
-This builds TypeScript and starts the tester at `http://localhost:3000`.
+Configure `frontend/.env` with `SERVICE_CLIENT_ID` and `SERVICE_CLIENT_SECRET`.
 
-## Reusable plugin for other repos
+## Reusable plugin
 
-Use the plugin package at `packages/theeyebeta-dataapi-plugin`:
+- `packages/theeyebeta-dataapi-plugin`
+
+Build:
 
 ```bash
 cd packages/theeyebeta-dataapi-plugin
 npm install
 npm run build
 ```
-
-Then in another repo:
-
-```bash
-npm install ../TheEyeBetaDataAPI/packages/theeyebeta-dataapi-plugin
-```
-
-or after publishing:
-
-```bash
-npm install @theeyebeta/dataapi-plugin
-```
-
-## GitHub repo creation
-
-`gh` is required and must be authenticated first:
-
-```bash
-gh auth login
-bash scripts/create_github_repo.sh TheEyeBetaDataAPI public
-```
-
-## Docker compose (optional)
-
-`docker compose up --build -d` starts:
-
-- `dataapi` on loopback `127.0.0.1:7000`
-- `nginx` on loopback `127.0.0.1:80` proxying to dataapi
-
-For Cloudflare Tunnel, direct origin to `http://127.0.0.1:7000` is preferred.

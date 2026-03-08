@@ -1,37 +1,33 @@
-# TheEyeBetaDataAPI Production Runbook (Cloudflare Tunnel)
+# TheEyeBetaDataAPI Production Runbook
 
-This runbook is the deployment baseline for exposing the API through Cloudflare Tunnel from a home server.
+## 1) Baseline
 
-## 1) Architecture
+- Private PostgreSQL; never expose DB publicly.
+- API service is the only DB consumer.
+- Public ingress is Cloudflare Tunnel -> `http://127.0.0.1:7000`.
+- TLS terminates at Cloudflare edge.
 
-- Public ingress: Cloudflare edge HTTPS
-- Origin service on home server: `http://127.0.0.1:7000`
-- App runtime: Gunicorn + Uvicorn worker (`app.main:app`)
-- Database: private PostgreSQL using read-only credentials
+## 2) Required environment
 
-## 2) Database hardening
+Set `.env` from `.env.example` and configure:
 
-Run `deploy/db_security.sql` as a privileged DB user, then use only the read-only role in `DATABASE_URL`.
+- Core:
+  - `DATABASE_URL`
+  - `JWT_SECRET`, `JWT_ISSUER`, `JWT_AUDIENCE`
+  - `SERVICE_CLIENTS_JSON`
+  - `TRUSTED_HOSTS`, `CORS_ORIGINS`, `TRUST_PROXY_HEADERS=true`
+- User JWT mode (pick one):
+  - Symmetric: `USER_JWT_SECRET` (+ `USER_JWT_ALGORITHM`)
+  - OIDC/JWKS: `USER_JWT_JWKS_URL`, `USER_JWT_ISSUER`, `USER_JWT_AUDIENCE`, `USER_JWT_ALGORITHMS`
+- Optional multi-instance rate limiting:
+  - `REDIS_URL`, `RATE_LIMIT_REDIS_PREFIX`
+- Optional service mTLS mode:
+  - `SERVICE_MTLS_ENABLED=true`
+  - `SERVICE_MTLS_SUBJECTS_JSON`
+  - `SERVICE_MTLS_HEADER_CLIENT_ID`
+  - `SERVICE_MTLS_HEADER_SUBJECT`
 
-## 3) Production environment
-
-Create `.env` from `.env.example` and set real values:
-
-```dotenv
-ENVIRONMENT=production
-DEBUG=false
-DATABASE_URL=postgresql+psycopg://api_readonly:REPLACE_ME@127.0.0.1:5432/theeyebeta
-API_KEY=REPLACE_WITH_STRONG_RANDOM_API_KEY_MIN_24_CHARS
-JWT_SECRET=REPLACE_WITH_STRONG_RANDOM_JWT_SECRET_MIN_24_CHARS
-API_HOST=127.0.0.1
-API_PORT=7000
-TRUST_PROXY_HEADERS=true
-TRUSTED_HOSTS=api.theeyebeta.store,dataapi.theeyebeta.store,127.0.0.1,localhost
-CORS_ORIGINS=https://theeyebeta.store
-RATE_LIMIT_PER_MINUTE=120
-```
-
-## 4) Start the API
+## 3) Start service
 
 ```bash
 cd /home/the-eye-beta/TheEyeBeta2025/TheEyeBetaDataAPI
@@ -39,9 +35,7 @@ source .venv/bin/activate
 bash scripts/run_production.sh
 ```
 
-## 5) Cloudflare Tunnel config
-
-Set both hostnames to the same local origin:
+## 4) Cloudflare Tunnel config
 
 ```yaml
 ingress:
@@ -52,27 +46,60 @@ ingress:
   - service: http_status:404
 ```
 
-## 6) Verification
+## 5) Verification checklist
 
-Local checks:
+Local process:
 
 ```bash
 ss -ltnp | rg ':7000'
-curl -s http://127.0.0.1:7000/
 curl -s http://127.0.0.1:7000/health
 ```
 
-Public checks:
+Service credentials flow:
 
 ```bash
-curl -s https://api.theeyebeta.store/
-curl -s https://dataapi.theeyebeta.store/health
-curl -s -H "X-API-Key: ${API_KEY}" "https://api.theeyebeta.store/api/v1/context?ticker=AAPL"
+TOKEN=$(curl -s -X POST "http://127.0.0.1:7000/api/v1/auth/service-token" \
+  -u "vi-app:<SERVICE_SECRET>" \
+  -H "Content-Type: application/json" \
+  -d '{"requested_scopes":["market:read","advisor:read"]}' \
+  | sed -n 's/.*"access_token":"\([^"]*\)".*/\1/p')
 ```
 
-## 7) Operational notes
+Capability checks:
 
-- Do not expose the API directly on public interfaces.
-- Keep `TRUST_PROXY_HEADERS=true` only when ingress is Cloudflare Tunnel or a trusted reverse proxy.
-- Rotate `API_KEY` and `JWT_SECRET` regularly.
-- If secrets were ever committed, rotate immediately before go-live.
+```bash
+curl -s "http://127.0.0.1:7000/api/v1/market-data/quotes?symbols=AAPL,MSFT" \
+  -H "Authorization: Bearer ${TOKEN}"
+
+curl -s "http://127.0.0.1:7000/api/v1/advisor/context?ticker=AAPL" \
+  -H "Authorization: Bearer ${TOKEN}"
+```
+
+Trade write check (trade-engine service):
+
+```bash
+TRADE_TOKEN=<trade_engine_token_with_trades_write>
+curl -s -X POST "http://127.0.0.1:7000/api/v1/trades/orders" \
+  -H "Authorization: Bearer ${TRADE_TOKEN}" \
+  -H "Idempotency-Key: idem-1" \
+  -H "Content-Type: application/json" \
+  -d '{"symbol":"AAPL","side":"buy","quantity":1}'
+```
+
+Remote smoke:
+
+```bash
+API_BASE_URL="https://api.theeyebeta.store" \
+SERVICE_CLIENT_ID="vi-app" \
+SERVICE_CLIENT_SECRET="<SERVICE_SECRET>" \
+bash scripts/verify_remote_access.sh
+```
+
+## 6) Security operations
+
+- Rotate JWT and service-client secrets periodically:
+  - `python scripts/rotate_secrets.py`
+- Keep service scopes minimal per consumer.
+- Use distinct principals per consumer (mobile backend, VI, trade engine, admin/internal).
+- Require `Idempotency-Key` for write routes.
+- Enable JWKS and mTLS in production when identity provider and proxy are ready.

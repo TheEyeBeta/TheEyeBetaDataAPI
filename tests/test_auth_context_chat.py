@@ -1,87 +1,101 @@
-"""Tests for auth, context, and chat routes."""
+"""Tests for authn/authz and advisor routes."""
 
+from __future__ import annotations
+
+from datetime import UTC, datetime, timedelta
+
+import jwt
 from fastapi.testclient import TestClient
 
+from app.api.dependencies.services import get_advisor_service
+from app.core.config import settings
 from app.main import app
+from app.schemas.chat import ChatResponse
+from app.schemas.context import AdvisorContextResponse, NewsItemResponse, TickerSummaryResponse
 
 
-class _DummySession:
-    closed = False
+class _FakeAdvisorService:
+    def get_context(self, ticker: str | None, ticker_limit: int, news_limit: int) -> AdvisorContextResponse:  # noqa: ARG002
+        return AdvisorContextResponse(
+            tickers=[TickerSummaryResponse(ticker="AAPL", company_name="Apple Inc.")],
+            news=[NewsItemResponse(headline="Fed update")],
+            ticker_snapshot=None,
+        )
 
-    def close(self) -> None:
-        self.closed = True
+    def chat(self, question: str, ticker: str | None) -> ChatResponse:  # noqa: ARG002
+        return ChatResponse(answer="Mock answer", used_ticker=ticker, context_rows=1)
 
 
-def test_issue_token_requires_api_key() -> None:
+def _make_user_token(scopes: list[str]) -> str:
+    now = datetime.now(UTC)
+    payload = {
+        "sub": "user-123",
+        "scope": " ".join(scopes),
+        "iss": settings.jwt_issuer,
+        "aud": settings.jwt_audience,
+        "iat": int(now.timestamp()),
+        "exp": int((now + timedelta(minutes=60)).timestamp()),
+    }
+    return jwt.encode(payload, settings.user_jwt_secret, algorithm=settings.user_jwt_algorithm)
+
+
+def test_issue_service_token_requires_basic_credentials() -> None:
     client = TestClient(app)
-
-    response = client.post("/api/v1/auth/token", json={"subject": "svc-client", "expires_minutes": 30})
-
+    response = client.post("/api/v1/auth/service-token", json={"requested_scopes": ["market:read"]})
     assert response.status_code == 401
+    assert response.json()["error"]["code"] == "AUTHENTICATION_FAILED"
 
 
-def test_issue_token_with_api_key_succeeds() -> None:
+def test_issue_service_token_with_basic_credentials_succeeds() -> None:
     client = TestClient(app)
-
     response = client.post(
-        "/api/v1/auth/token",
-        headers={"X-API-Key": "test-api-key-which-is-definitely-24chars"},
-        json={"subject": "svc-client", "expires_minutes": 30},
+        "/api/v1/auth/service-token",
+        auth=("vi-app", "vi-app-secret-which-is-24chars!!"),
+        json={"requested_scopes": ["market:read", "advisor:read"]},
     )
-
     assert response.status_code == 200
     payload = response.json()
     assert payload["token_type"] == "bearer"
-    assert payload["expires_minutes"] == 30
+    assert set(payload["scopes"]) == {"market:read", "advisor:read"}
     assert isinstance(payload["access_token"], str) and payload["access_token"]
 
 
-def test_context_requires_auth() -> None:
+def test_context_requires_bearer_token() -> None:
     client = TestClient(app)
-
     response = client.get("/api/v1/context")
-
     assert response.status_code == 401
 
 
-def test_context_returns_payload_for_api_key(monkeypatch) -> None:
+def test_context_forbidden_without_required_scope() -> None:
+    app.dependency_overrides[get_advisor_service] = lambda: _FakeAdvisorService()
     client = TestClient(app)
-    dummy = _DummySession()
+    token = _make_user_token(scopes=["market:read"])
+    response = client.get("/api/v1/context", headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "FORBIDDEN"
+    app.dependency_overrides.clear()
 
-    monkeypatch.setattr("app.api.routes.context.get_db_session", lambda: dummy)
-    monkeypatch.setattr("app.api.routes.context.fetch_active_tickers", lambda _s, limit: [{"ticker": "AAPL"}])
-    monkeypatch.setattr("app.api.routes.context.fetch_recent_news", lambda _s, limit: [{"headline": "Fed update"}])
-    monkeypatch.setattr(
-        "app.api.routes.context.fetch_latest_snapshot",
-        lambda _s, ticker: {"ticker": ticker, "last_price": 250.0},
-    )
 
-    response = client.get(
-        "/api/v1/context?ticker=AAPL&ticker_limit=5&news_limit=2",
-        headers={"X-API-Key": "test-api-key-which-is-definitely-24chars"},
-    )
-
+def test_context_allows_user_with_advisor_scope() -> None:
+    app.dependency_overrides[get_advisor_service] = lambda: _FakeAdvisorService()
+    client = TestClient(app)
+    token = _make_user_token(scopes=["advisor:read"])
+    response = client.get("/api/v1/context?ticker=AAPL", headers={"Authorization": f"Bearer {token}"})
     assert response.status_code == 200
     payload = response.json()
-    assert payload["tickers"] == [{"ticker": "AAPL"}]
-    assert payload["news"] == [{"headline": "Fed update"}]
-    assert payload["ticker_snapshot"]["ticker"] == "AAPL"
-    assert dummy.closed is True
+    assert payload["tickers"][0]["ticker"] == "AAPL"
+    app.dependency_overrides.clear()
 
 
-def test_chat_returns_mocked_answer(monkeypatch) -> None:
+def test_chat_allows_user_with_advisor_scope() -> None:
+    app.dependency_overrides[get_advisor_service] = lambda: _FakeAdvisorService()
     client = TestClient(app)
-    dummy = _DummySession()
-
-    monkeypatch.setattr("app.api.routes.chat.get_db_session", lambda: dummy)
-    monkeypatch.setattr("app.api.routes.chat.answer_question", lambda session, question, ticker: ("Mock answer", 3))
-
+    token = _make_user_token(scopes=["advisor:read"])
     response = client.post(
         "/api/v1/chat",
-        headers={"X-API-Key": "test-api-key-which-is-definitely-24chars"},
-        json={"question": "What happened today?", "ticker": "AAPL"},
+        headers={"Authorization": f"Bearer {token}"},
+        json={"question": "What happened?", "ticker": "AAPL"},
     )
-
     assert response.status_code == 200
-    assert response.json() == {"answer": "Mock answer", "used_ticker": "AAPL", "context_rows": 3}
-    assert dummy.closed is True
+    assert response.json() == {"answer": "Mock answer", "used_ticker": "AAPL", "context_rows": 1}
+    app.dependency_overrides.clear()

@@ -11,9 +11,9 @@ function byId<T extends HTMLElement>(id: string): T {
   return el as T;
 }
 
-async function call(url: string): Promise<CallResult> {
+async function call(url: string, init?: RequestInit): Promise<CallResult> {
   try {
-    const resp = await fetch(url);
+    const resp = await fetch(url, init);
     const text = await resp.text();
     try {
       return { ok: resp.ok, data: JSON.stringify(JSON.parse(text), null, 2) };
@@ -52,43 +52,52 @@ async function checkHealth(): Promise<void> {
 
 function wireUi(): void {
   byId<HTMLButtonElement>("btn-health").addEventListener("click", () => void checkHealth());
-  byId<HTMLButtonElement>("btn-tickers").addEventListener("click", () => {
-    void call("/api/tickers").then((result) => show("tickers-out", result));
+
+  byId<HTMLButtonElement>("btn-symbol-search").addEventListener("click", () => {
+    const query = inputValue("symbols-query-in") || "AAP";
+    void call(`/api/symbols/search?q=${encodeURIComponent(query)}&limit=25`).then((result) =>
+      show("symbols-out", result),
+    );
   });
-  byId<HTMLButtonElement>("btn-ai-ticker").addEventListener("click", () => {
-    const ticker = inputValue("ai-ticker-in") || "AAPL";
-    void call(`/api/ai/ticker/${encodeURIComponent(ticker)}`).then((result) => show("ai-ticker-out", result));
+
+  byId<HTMLButtonElement>("btn-quotes").addEventListener("click", () => {
+    const symbols = inputValue("quotes-symbols-in") || "AAPL,MSFT";
+    void call(`/api/market-data/quotes?symbols=${encodeURIComponent(symbols)}`).then((result) =>
+      show("quotes-out", result),
+    );
   });
-  byId<HTMLButtonElement>("btn-technical").addEventListener("click", () => {
-    const ticker = inputValue("tech-ticker-in") || "AAPL";
-    void call(`/api/indicators/${encodeURIComponent(ticker)}/technical`).then((result) => show("tech-out", result));
+
+  byId<HTMLButtonElement>("btn-analytics").addEventListener("click", () => {
+    const ticker = inputValue("analytics-ticker-in") || "AAPL";
+    void call(`/api/analytics/${encodeURIComponent(ticker)}`).then((result) => show("analytics-out", result));
   });
-  byId<HTMLButtonElement>("btn-fundamentals").addEventListener("click", () => {
-    const ticker = inputValue("fund-ticker-in") || "AAPL";
-    void call(`/api/fundamentals/${encodeURIComponent(ticker)}/income`).then((result) => show("fund-out", result));
+
+  byId<HTMLButtonElement>("btn-advisor-context").addEventListener("click", () => {
+    const ticker = inputValue("context-ticker-in");
+    const tickerQuery = ticker ? `&ticker=${encodeURIComponent(ticker)}` : "";
+    void call(`/api/advisor/context?ticker_limit=25&news_limit=10${tickerQuery}`).then((result) =>
+      show("advisor-context-out", result),
+    );
   });
-  byId<HTMLButtonElement>("btn-risk").addEventListener("click", () => {
-    const ticker = inputValue("risk-ticker-in") || "AAPL";
-    void call(`/api/indicators/${encodeURIComponent(ticker)}/risk`).then((result) => show("risk-out", result));
+
+  byId<HTMLButtonElement>("btn-advisor-chat").addEventListener("click", () => {
+    const ticker = inputValue("chat-ticker-in") || "AAPL";
+    const question = inputValue("chat-question-in") || "Give me a quick snapshot.";
+    void call("/api/advisor/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question, ticker }),
+    }).then((result) => show("advisor-chat-out", result));
   });
-  byId<HTMLButtonElement>("btn-ai-context").addEventListener("click", () => {
-    void call("/api/ai/context").then((result) => show("ai-ctx-out", result));
+
+  byId<HTMLButtonElement>("btn-signals").addEventListener("click", () => {
+    void call("/api/signals/latest").then((result) => show("signals-out", result));
   });
-  byId<HTMLButtonElement>("btn-ai-signals").addEventListener("click", () => {
-    void call("/api/ai/signals").then((result) => show("ai-signals-out", result));
-  });
-  byId<HTMLButtonElement>("btn-ai-portfolio").addEventListener("click", () => {
-    void call("/api/ai/portfolio").then((result) => show("ai-portfolio-out", result));
-  });
-  byId<HTMLButtonElement>("btn-news-latest").addEventListener("click", () => {
-    void call("/api/news/latest").then((result) => show("news-out", result));
-  });
-  byId<HTMLButtonElement>("btn-news-stats").addEventListener("click", () => {
-    void call("/api/news/stats").then((result) => show("news-stats-out", result));
-  });
-  byId<HTMLButtonElement>("btn-chart-prices").addEventListener("click", () => {
-    const ticker = inputValue("chart-ticker-in") || "AAPL";
-    void call(`/api/charting/${encodeURIComponent(ticker)}/prices`).then((result) => show("chart-out", result));
+
+  byId<HTMLButtonElement>("btn-portfolio").addEventListener("click", () => {
+    const ownerSubject = inputValue("portfolio-owner-in");
+    const ownerQuery = ownerSubject ? `?owner_subject=${encodeURIComponent(ownerSubject)}` : "";
+    void call(`/api/portfolio/state${ownerQuery}`).then((result) => show("portfolio-out", result));
   });
 }
 

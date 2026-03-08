@@ -2,24 +2,21 @@
 
 from fastapi import APIRouter, Depends
 
-from app.core.security import AuthContext, require_auth
-from app.db.session import get_db_session
+from app.api.dependencies.services import get_advisor_service
+from app.auth.dependencies import require_scopes
+from app.auth.scopes import SCOPE_ADVISOR_READ
 from app.schemas.chat import ChatRequest, ChatResponse
-from app.services.ai_service import answer_question
+from app.services.advisor_service import AdvisorService
 
-router = APIRouter()
+router = APIRouter(tags=["advisor"])
 
 
 @router.post("/api/v1/chat", response_model=ChatResponse)
-def chat(request: ChatRequest, _: AuthContext = Depends(require_auth)) -> ChatResponse:
+@router.post("/api/v1/advisor/chat", response_model=ChatResponse)
+def chat(
+    request: ChatRequest,
+    _=Depends(require_scopes([SCOPE_ADVISOR_READ])),
+    advisor_service: AdvisorService = Depends(get_advisor_service),
+) -> ChatResponse:
     """Answer user question with constrained DB context."""
-    session = get_db_session()
-    try:
-        answer, context_rows = answer_question(
-            session=session,
-            question=request.question,
-            ticker=request.ticker,
-        )
-        return ChatResponse(answer=answer, used_ticker=request.ticker, context_rows=context_rows)
-    finally:
-        session.close()
+    return advisor_service.chat(question=request.question, ticker=request.ticker)

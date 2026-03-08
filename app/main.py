@@ -4,10 +4,19 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
+from app.api.error_handlers import register_error_handlers
+from app.api.routes.admin import router as admin_router
+from app.api.routes.analytics import router as analytics_router
 from app.api.routes.auth import router as auth_router
 from app.api.routes.chat import router as chat_router
 from app.api.routes.context import router as context_router
 from app.api.routes.health import router as health_router
+from app.api.routes.internal import router as internal_router
+from app.api.routes.market_data import router as market_data_router
+from app.api.routes.portfolio import router as portfolio_router
+from app.api.routes.signals import router as signals_router
+from app.api.routes.symbols import router as symbols_router
+from app.api.routes.trades import router as trades_router
 from app.core.config import settings
 from app.core.logging import setup_logging
 from app.core.rate_limit import RateLimitMiddleware
@@ -33,13 +42,23 @@ if settings.parsed_cors_origins:
         allow_origins=settings.parsed_cors_origins,
         allow_credentials=True,
         allow_methods=["GET", "POST", "OPTIONS"],
-        allow_headers=["Authorization", "Content-Type", "X-API-Key", "X-Request-ID"],
+        allow_headers=["Authorization", "Content-Type", "X-Request-ID", "Idempotency-Key"],
     )
 
 app.include_router(health_router)
 app.include_router(auth_router)
 app.include_router(context_router)
 app.include_router(chat_router)
+app.include_router(market_data_router)
+app.include_router(symbols_router)
+app.include_router(analytics_router)
+app.include_router(signals_router)
+app.include_router(portfolio_router)
+app.include_router(trades_router)
+app.include_router(admin_router)
+app.include_router(internal_router)
+
+register_error_handlers(app)
 
 
 @app.get("/")

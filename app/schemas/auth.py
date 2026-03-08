@@ -1,18 +1,24 @@
 """Authentication schemas."""
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
-class TokenRequest(BaseModel):
-    """JWT token issue request."""
+class ServiceTokenRequest(BaseModel):
+    """Service token request payload."""
 
-    subject: str = Field(min_length=3, max_length=128)
-    expires_minutes: int = Field(default=60, ge=5, le=1440)
+    requested_scopes: list[str] = Field(default_factory=list)
+
+    @field_validator("requested_scopes")
+    @classmethod
+    def normalize_scopes(cls, values: list[str]) -> list[str]:
+        normalized = [value.strip() for value in values if value.strip()]
+        return list(dict.fromkeys(normalized))
 
 
-class TokenResponse(BaseModel):
-    """JWT token issue response."""
+class ServiceTokenResponse(BaseModel):
+    """Service token response payload."""
 
     access_token: str
     token_type: str = "bearer"
     expires_minutes: int
+    scopes: list[str]

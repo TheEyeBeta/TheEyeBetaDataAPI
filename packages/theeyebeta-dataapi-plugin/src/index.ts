@@ -1,14 +1,14 @@
 export type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
 export type TokenRequest = {
-  subject: string;
-  expires_minutes?: number;
+  requested_scopes?: string[];
 };
 
 export type TokenResponse = {
   access_token: string;
   token_type: string;
   expires_minutes: number;
+  scopes: string[];
 };
 
 export type ChatRequest = {
@@ -35,8 +35,10 @@ export type RootResponse = {
 
 export type DataApiClientConfig = {
   baseUrl: string;
-  apiKey?: string;
   bearerToken?: string;
+  serviceClientId?: string;
+  serviceClientSecret?: string;
+  requestedScopes?: string[];
   fetchImpl?: FetchLike;
 };
 
@@ -45,14 +47,20 @@ type QueryParams = Record<string, QueryValue>;
 
 export class DataApiClient {
   private readonly baseUrl: string;
-  private readonly apiKey?: string;
   private readonly bearerToken?: string;
+  private readonly serviceClientId?: string;
+  private readonly serviceClientSecret?: string;
+  private readonly requestedScopes: string[];
   private readonly fetchImpl: FetchLike;
+  private _cachedServiceToken: string | null = null;
+  private _cachedServiceTokenExpiresAt = 0;
 
   constructor(config: DataApiClientConfig) {
     this.baseUrl = config.baseUrl.replace(/\/+$/, "");
-    this.apiKey = config.apiKey;
     this.bearerToken = config.bearerToken;
+    this.serviceClientId = config.serviceClientId;
+    this.serviceClientSecret = config.serviceClientSecret;
+    this.requestedScopes = config.requestedScopes ?? [];
     if (config.fetchImpl) {
       this.fetchImpl = config.fetchImpl;
     } else if (typeof fetch !== "undefined") {
@@ -65,8 +73,10 @@ export class DataApiClient {
   withBearerToken(token: string): DataApiClient {
     return new DataApiClient({
       baseUrl: this.baseUrl,
-      apiKey: this.apiKey,
       bearerToken: token,
+      serviceClientId: this.serviceClientId,
+      serviceClientSecret: this.serviceClientSecret,
+      requestedScopes: this.requestedScopes,
       fetchImpl: this.fetchImpl,
     });
   }
@@ -80,7 +90,7 @@ export class DataApiClient {
   }
 
   async issueToken(payload: TokenRequest): Promise<TokenResponse> {
-    return this.request<TokenResponse>("POST", "/api/v1/auth/token", { body: payload });
+    return this.request<TokenResponse>("POST", "/api/v1/auth/service-token", { body: payload });
   }
 
   async context(params: { ticker?: string; ticker_limit?: number; news_limit?: number } = {}): Promise<unknown> {
@@ -111,12 +121,7 @@ export class DataApiClient {
     if (options.body !== undefined) {
       headers["Content-Type"] = "application/json";
     }
-    if (this.apiKey) {
-      headers["X-API-Key"] = this.apiKey;
-    }
-    if (this.bearerToken) {
-      headers.Authorization = `Bearer ${this.bearerToken}`;
-    }
+    headers.Authorization = `Bearer ${await this.getAuthorizationToken()}`;
 
     const resp = await this.fetchImpl(url, {
       method,
@@ -152,8 +157,54 @@ export class DataApiClient {
     }
     return url.toString();
   }
+
+  private async getAuthorizationToken(): Promise<string> {
+    if (this.bearerToken) {
+      return this.bearerToken;
+    }
+    const now = Date.now();
+    if (this._cachedServiceToken && now < this._cachedServiceTokenExpiresAt) {
+      return this._cachedServiceToken;
+    }
+    if (!this.serviceClientId || !this.serviceClientSecret) {
+      throw new Error("Provide bearerToken or serviceClientId/serviceClientSecret");
+    }
+
+    const basic = toBase64(`${this.serviceClientId}:${this.serviceClientSecret}`);
+    const response = await this.fetchImpl(`${this.baseUrl}/api/v1/auth/service-token`, {
+      method: "POST",
+      headers: {
+        Authorization: `Basic ${basic}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ requested_scopes: this.requestedScopes }),
+    });
+    const rawBody = await response.text();
+    if (!response.ok) {
+      throw new Error(`Service token request failed (${response.status}): ${rawBody}`);
+    }
+    let parsed: { access_token: string; expires_minutes: number };
+    try {
+      parsed = JSON.parse(rawBody) as { access_token: string; expires_minutes: number };
+    } catch {
+      throw new Error(`Service token response was not JSON: ${rawBody}`);
+    }
+    this._cachedServiceToken = parsed.access_token;
+    this._cachedServiceTokenExpiresAt = Date.now() + Math.max(1, parsed.expires_minutes - 1) * 60 * 1000;
+    return this._cachedServiceToken;
+  }
 }
 
 export function createDataApiPlugin(config: DataApiClientConfig): DataApiClient {
   return new DataApiClient(config);
+}
+
+function toBase64(value: string): string {
+  if (typeof btoa === "function") {
+    return btoa(value);
+  }
+  if (typeof Buffer !== "undefined") {
+    return Buffer.from(value, "utf-8").toString("base64");
+  }
+  throw new Error("No base64 encoder available in this runtime");
 }

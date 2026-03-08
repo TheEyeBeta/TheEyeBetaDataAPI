@@ -29,13 +29,14 @@ import { createDataApiPlugin } from "@theeyebeta/dataapi-plugin";
 
 const client = createDataApiPlugin({
   baseUrl: "https://api.theeyebeta.store",
-  apiKey: process.env.DATA_API_KEY,
+  serviceClientId: process.env.SERVICE_CLIENT_ID,
+  serviceClientSecret: process.env.SERVICE_CLIENT_SECRET,
+  requestedScopes: ["advisor:read", "market:read"],
 });
 
 const health = await client.health();
-const token = await client.issueToken({ subject: "my-service", expires_minutes: 60 });
-const authed = client.withBearerToken(token.access_token);
-const answer = await authed.chat({ question: "Give me a quick AAPL snapshot", ticker: "AAPL" });
+const context = await client.context({ ticker: "AAPL" });
+const answer = await client.chat({ question: "Give me a quick AAPL snapshot", ticker: "AAPL" });
 ```
 
 ## Build

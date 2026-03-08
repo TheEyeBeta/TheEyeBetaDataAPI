@@ -7,10 +7,8 @@ import logging
 from typing import Any
 
 from openai import OpenAI
-from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.db.queries import fetch_latest_snapshot, fetch_recent_news
 from app.services.prompt_guard import is_safe_question
 
 logger = logging.getLogger("dataapi.ai")
@@ -30,26 +28,10 @@ def _get_openai_client() -> OpenAI:
     return _openai_client
 
 
-def _build_context(session: Session, ticker: str | None = None) -> dict[str, Any]:
-    """Build constrained, read-only context payload for the LLM."""
-    data: dict[str, Any] = {"ticker_snapshot": None, "recent_news": []}
-
-    if ticker:
-        data["ticker_snapshot"] = fetch_latest_snapshot(session, ticker=ticker)
-    data["recent_news"] = fetch_recent_news(session, limit=8)
-    return data
-
-
-def answer_question(session: Session, question: str, ticker: str | None = None) -> tuple[str, int]:
-    """Answer a question using safe DB context and optional OpenAI generation."""
+def answer_question(question: str, ticker: str | None, context: dict[str, Any]) -> str:
+    """Answer a question using provided safe context and optional OpenAI generation."""
     if not is_safe_question(question):
-        return (
-            "I can only help with safe read-only financial analysis questions.",
-            0,
-        )
-
-    context = _build_context(session, ticker=ticker)
-    context_rows = len(context.get("recent_news", [])) + (1 if context.get("ticker_snapshot") else 0)
+        return "I can only help with safe read-only financial analysis questions."
 
     if not settings.openai_api_key:
         # Graceful fallback when OpenAI is not configured.
@@ -59,9 +41,8 @@ def answer_question(session: Session, question: str, ticker: str | None = None) 
                 f"OpenAI is not configured. Snapshot for {snap.get('ticker')}: "
                 f"price={snap.get('last_price')}, rsi_14={snap.get('rsi_14')}, "
                 f"price_change_pct={snap.get('price_change_pct')}",
-                context_rows,
             )
-        return "OpenAI is not configured. Provide OPENAI_API_KEY to enable AI responses.", context_rows
+        return "OpenAI is not configured. Provide OPENAI_API_KEY to enable AI responses."
 
     client = _get_openai_client()
 
@@ -91,4 +72,4 @@ def answer_question(session: Session, question: str, ticker: str | None = None) 
         logger.exception("OpenAI API call failed")
         answer = "AI service temporarily unavailable. Please try again."
 
-    return answer, context_rows
+    return answer
