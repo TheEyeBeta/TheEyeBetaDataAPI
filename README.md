@@ -47,7 +47,7 @@ Secure multi-client data access layer between private PostgreSQL and external/in
 - `GET /api/v1/admin/audit-events`
 - `POST /api/v1/internal/jobs/rebuild-indicators`
 
-## Production setup (Mac Mini — one time)
+## Production setup (Linux — one time)
 
 The app runs natively on the machine — no Docker required.
 
@@ -55,26 +55,27 @@ The app runs natively on the machine — no Docker required.
 
 ```bash
 cd /path/to/TheEyeBetaDataAPI
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-python scripts/bootstrap_local_env.py \
-  --database-url "postgresql+psycopg://postgres:REPLACE_ME@localhost:5432/TheEyeBeta2025Live"
+python3 scripts/bootstrap_local_env.py \
+  --database-url "postgresql+psycopg://postgres:PASSWORD@localhost:5432/TheEyeBeta2025Live" \
+  --trust-proxy-headers
 ```
 
-If running behind Cloudflare Tunnel, add `--trust-proxy-headers`.
-
-**2. Install as a background service (starts on boot, restarts on crash):**
+**2. Install as a systemd service (starts on boot, restarts on crash):**
 
 ```bash
-bash scripts/install_service.sh
+sudo bash scripts/install_service.sh
 ```
 
-Logs are written to `~/Library/Logs/theeyebeta-dataapi/`.
+**3. Allow the deploy runner to restart the service without a password prompt:**
 
-**3. Install the GitHub Actions self-hosted runner (auto-deploys on push to `main`):**
+```bash
+echo "$USER ALL=(ALL) NOPASSWD: /bin/systemctl restart theeyebeta-dataapi" \
+  | sudo tee /etc/sudoers.d/theeyebeta-dataapi
+```
 
-Go to: **GitHub → repo Settings → Actions → Runners → New self-hosted runner → macOS**
+**4. Install the GitHub Actions self-hosted runner (auto-deploys on push to `main`):**
+
+Go to: **GitHub → repo Settings → Actions → Runners → New self-hosted runner → Linux**
 
 Run the commands GitHub provides, then:
 
@@ -84,7 +85,7 @@ sudo ./svc.sh install
 sudo ./svc.sh start
 ```
 
-After this, every push to `main` that passes CI will automatically pull the latest code, update dependencies, restart the service, and verify `/health`.
+After this, every push to `main` that passes CI automatically pulls latest code, updates dependencies, restarts the service, and verifies `/health`.
 
 ## Local development
 
@@ -93,7 +94,7 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements-dev.txt
 python scripts/bootstrap_local_env.py \
-  --database-url "postgresql+psycopg://postgres:REPLACE_ME@localhost:5432/TheEyeBeta2025Live"
+  --database-url "postgresql+psycopg://postgres:PASSWORD@localhost:5432/TheEyeBeta2025Live"
 bash scripts/run_local.sh
 ```
 
@@ -102,17 +103,18 @@ Default bind: `127.0.0.1:7000`
 ## Service management
 
 ```bash
+# Status
+sudo systemctl status theeyebeta-dataapi
+
 # Restart
-launchctl kickstart -k gui/$(id -u)/com.theeyebeta.dataapi
+sudo systemctl restart theeyebeta-dataapi
 
-# Stop
-launchctl unload ~/Library/LaunchAgents/com.theeyebeta.dataapi.plist
+# Stop / Start
+sudo systemctl stop theeyebeta-dataapi
+sudo systemctl start theeyebeta-dataapi
 
-# Start
-launchctl load ~/Library/LaunchAgents/com.theeyebeta.dataapi.plist
-
-# Logs
-tail -f ~/Library/Logs/theeyebeta-dataapi/stdout.log
+# Logs (live)
+sudo journalctl -u theeyebeta-dataapi -f
 ```
 
 ## Quick verification
@@ -197,11 +199,3 @@ python scripts/provision_db_service_client.py \
 ## E2E verification
 
 See `OTHEREND_TEST.md` for a complete verification workflow with sample responses.
-
-## TypeScript frontend tester
-
-```bash
-cd packages/theeyebeta-dataapi-plugin
-npm install
-npm run build
-```

@@ -1,65 +1,54 @@
 #!/usr/bin/env bash
-# One-time setup: installs the app as a macOS launchd service.
-# Run once on the Mac Mini: bash scripts/install_service.sh
+# One-time setup: installs the app as a systemd service.
+# Run once: sudo bash scripts/install_service.sh
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PLIST_NAME="com.theeyebeta.dataapi"
-PLIST_DEST="$HOME/Library/LaunchAgents/${PLIST_NAME}.plist"
-LOG_DIR="$HOME/Library/Logs/theeyebeta-dataapi"
+SERVICE_NAME="theeyebeta-dataapi"
+SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
+RUN_USER="${SUDO_USER:-$(whoami)}"
 
-mkdir -p "$LOG_DIR"
-
-# Create .venv if it doesn't exist
-if [ ! -d "$REPO_DIR/.venv" ]; then
-    echo "Creating .venv..."
-    python3 -m venv "$REPO_DIR/.venv"
+if [ "$(id -u)" -ne 0 ]; then
+    echo "Run with sudo: sudo bash scripts/install_service.sh"
+    exit 1
 fi
 
+# Create .venv as the actual user
+echo "Creating .venv..."
+sudo -u "$RUN_USER" python3 -m venv "$REPO_DIR/.venv"
+
 echo "Installing dependencies..."
-"$REPO_DIR/.venv/bin/pip" install -q -r "$REPO_DIR/requirements.txt"
+sudo -u "$RUN_USER" "$REPO_DIR/.venv/bin/pip" install -q -r "$REPO_DIR/requirements.txt"
 
-echo "Writing plist to $PLIST_DEST..."
-cat > "$PLIST_DEST" <<PLIST
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>${PLIST_NAME}</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>${REPO_DIR}/scripts/run_production.sh</string>
-    </array>
-    <key>WorkingDirectory</key>
-    <string>${REPO_DIR}</string>
-    <key>EnvironmentVariables</key>
-    <dict>
-        <key>PATH</key>
-        <string>${REPO_DIR}/.venv/bin:/usr/local/bin:/usr/bin:/bin</string>
-    </dict>
-    <key>StandardOutPath</key>
-    <string>${LOG_DIR}/stdout.log</string>
-    <key>StandardErrorPath</key>
-    <string>${LOG_DIR}/stderr.log</string>
-    <key>RunAtLoad</key>
-    <true/>
-    <key>KeepAlive</key>
-    <true/>
-</dict>
-</plist>
-PLIST
+echo "Writing service file to $SERVICE_FILE..."
+cat > "$SERVICE_FILE" <<SERVICE
+[Unit]
+Description=TheEyeBeta Data API
+After=network.target
 
-# Load it (unload first if already registered)
-launchctl unload "$PLIST_DEST" 2>/dev/null || true
-launchctl load "$PLIST_DEST"
+[Service]
+Type=simple
+User=${RUN_USER}
+WorkingDirectory=${REPO_DIR}
+ExecStart=${REPO_DIR}/scripts/run_production.sh
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+SERVICE
+
+systemctl daemon-reload
+systemctl enable "$SERVICE_NAME"
+systemctl restart "$SERVICE_NAME"
 
 echo ""
 echo "Service installed and started."
-echo "Logs: $LOG_DIR"
 echo ""
 echo "Useful commands:"
-echo "  Stop:    launchctl unload ~/Library/LaunchAgents/${PLIST_NAME}.plist"
-echo "  Start:   launchctl load   ~/Library/LaunchAgents/${PLIST_NAME}.plist"
-echo "  Restart: launchctl kickstart -k gui/\$(id -u)/${PLIST_NAME}"
-echo "  Logs:    tail -f ${LOG_DIR}/stdout.log"
+echo "  Status:  sudo systemctl status ${SERVICE_NAME}"
+echo "  Logs:    sudo journalctl -u ${SERVICE_NAME} -f"
+echo "  Restart: sudo systemctl restart ${SERVICE_NAME}"
+echo "  Stop:    sudo systemctl stop ${SERVICE_NAME}"
