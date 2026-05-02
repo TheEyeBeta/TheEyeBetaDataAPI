@@ -47,7 +47,7 @@ Secure multi-client data access layer between private PostgreSQL and external/in
 - `GET /api/v1/admin/audit-events`
 - `POST /api/v1/internal/jobs/rebuild-indicators`
 
-## Production setup (Mac Mini — one time)
+## Production setup (Linux server — one time)
 
 The app runs natively on the machine — no Docker required.
 
@@ -67,14 +67,14 @@ If running behind Cloudflare Tunnel, add `--trust-proxy-headers`.
 **2. Install as a background service (starts on boot, restarts on crash):**
 
 ```bash
-bash scripts/install_service.sh
+sudo bash scripts/install_service.sh
 ```
 
-Logs are written to `~/Library/Logs/theeyebeta-dataapi/`.
+Logs are available via journald: `sudo journalctl -u theeyebeta-dataapi -f`
 
 **3. Install the GitHub Actions self-hosted runner (auto-deploys on push to `main`):**
 
-Go to: **GitHub → repo Settings → Actions → Runners → New self-hosted runner → macOS**
+Go to: **GitHub → repo Settings → Actions → Runners → New self-hosted runner → Linux**
 
 Run the commands GitHub provides, then:
 
@@ -103,16 +103,19 @@ Default bind: `127.0.0.1:7000`
 
 ```bash
 # Restart
-launchctl kickstart -k gui/$(id -u)/com.theeyebeta.dataapi
+sudo systemctl restart theeyebeta-dataapi
 
 # Stop
-launchctl unload ~/Library/LaunchAgents/com.theeyebeta.dataapi.plist
+sudo systemctl stop theeyebeta-dataapi
 
 # Start
-launchctl load ~/Library/LaunchAgents/com.theeyebeta.dataapi.plist
+sudo systemctl start theeyebeta-dataapi
+
+# Status
+sudo systemctl status theeyebeta-dataapi
 
 # Logs
-tail -f ~/Library/Logs/theeyebeta-dataapi/stdout.log
+sudo journalctl -u theeyebeta-dataapi -f
 ```
 
 ## Quick verification

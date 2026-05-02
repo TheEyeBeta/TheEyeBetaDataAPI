@@ -11,24 +11,24 @@ bash scripts/run_production.sh
 - The API binds to `127.0.0.1:7000`
 - Confirm healthy: `curl -sf http://127.0.0.1:7000/health`
 
-If the launchd service is installed (production Mac Mini), restart it with:
+If the systemd service is installed (production Linux server), restart it with:
 
 ```bash
-launchctl kickstart -k gui/$(id -u)/com.theeyebeta.dataapi
+sudo systemctl restart theeyebeta-dataapi
 ```
 
-To tail logs on the Mac Mini:
+To tail logs on the Linux server:
 
 ```bash
-tail -f ~/Library/Logs/theeyebeta-dataapi/stdout.log
+sudo journalctl -u theeyebeta-dataapi -f
 ```
 
-## One-Time Setup on Mac Mini
+## One-Time Setup on Linux Server
 
 Run this once to install the app as a background service that starts on boot:
 
 ```bash
-bash scripts/install_service.sh
+sudo bash scripts/install_service.sh
 ```
 
 That's it. The app will start automatically on reboot and restart itself if it crashes.
@@ -38,12 +38,12 @@ That's it. The app will start automatically on reboot and restart itself if it c
 Pushes to `main` trigger automatic deployment via GitHub Actions:
 
 1. CI runs all tests (`pytest`) on `ubuntu-latest`
-2. If tests pass, the `deploy` job runs on the **self-hosted runner** (Mac Mini)
-3. `scripts/deploy.sh` pulls latest `main`, updates pip dependencies, restarts the launchd service, and validates `/health`
+2. If tests pass, the `deploy` job runs on the **self-hosted runner** (Linux server)
+3. `scripts/deploy.sh` pulls latest `main`, updates pip dependencies, restarts the systemd service, and validates `/health`
 
-### One-Time Runner Setup (Mac Mini)
+### One-Time Runner Setup (Linux Server)
 
-Go to: **GitHub → repo Settings → Actions → Runners → New self-hosted runner → macOS**
+Go to: **GitHub → repo Settings → Actions → Runners → New self-hosted runner → Linux**
 
 Run the commands GitHub provides, then:
 

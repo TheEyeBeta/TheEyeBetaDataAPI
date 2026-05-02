@@ -1,65 +1,66 @@
 #!/usr/bin/env bash
-# One-time setup: installs the app as a macOS launchd service.
-# Run once on the Mac Mini: bash scripts/install_service.sh
+# One-time setup: installs the app as a systemd service on Linux.
+# Run once with sudo: sudo bash scripts/install_service.sh
 set -euo pipefail
 
-REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PLIST_NAME="com.theeyebeta.dataapi"
-PLIST_DEST="$HOME/Library/LaunchAgents/${PLIST_NAME}.plist"
-LOG_DIR="$HOME/Library/Logs/theeyebeta-dataapi"
+if [[ "$EUID" -ne 0 ]]; then
+    echo "Error: this script must be run as root (use sudo)." >&2
+    exit 1
+fi
 
-mkdir -p "$LOG_DIR"
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SERVICE_NAME="theeyebeta-dataapi"
+UNIT_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
+
+# Resolve the real user who invoked sudo (falls back to root)
+RUN_USER="${SUDO_USER:-root}"
+RUN_GROUP="$(id -gn "$RUN_USER")"
 
 # Create .venv if it doesn't exist
 if [ ! -d "$REPO_DIR/.venv" ]; then
     echo "Creating .venv..."
-    python3 -m venv "$REPO_DIR/.venv"
+    sudo -u "$RUN_USER" python3 -m venv "$REPO_DIR/.venv"
 fi
 
 echo "Installing dependencies..."
-"$REPO_DIR/.venv/bin/pip" install -q -r "$REPO_DIR/requirements.txt"
+sudo -u "$RUN_USER" "$REPO_DIR/.venv/bin/pip" install -q -r "$REPO_DIR/requirements.txt"
 
-echo "Writing plist to $PLIST_DEST..."
-cat > "$PLIST_DEST" <<PLIST
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>${PLIST_NAME}</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>${REPO_DIR}/scripts/run_production.sh</string>
-    </array>
-    <key>WorkingDirectory</key>
-    <string>${REPO_DIR}</string>
-    <key>EnvironmentVariables</key>
-    <dict>
-        <key>PATH</key>
-        <string>${REPO_DIR}/.venv/bin:/usr/local/bin:/usr/bin:/bin</string>
-    </dict>
-    <key>StandardOutPath</key>
-    <string>${LOG_DIR}/stdout.log</string>
-    <key>StandardErrorPath</key>
-    <string>${LOG_DIR}/stderr.log</string>
-    <key>RunAtLoad</key>
-    <true/>
-    <key>KeepAlive</key>
-    <true/>
-</dict>
-</plist>
-PLIST
+echo "Writing unit file to $UNIT_FILE..."
+cat > "$UNIT_FILE" <<UNIT
+[Unit]
+Description=TheEyeBeta Data API
+After=network.target
 
-# Load it (unload first if already registered)
-launchctl unload "$PLIST_DEST" 2>/dev/null || true
-launchctl load "$PLIST_DEST"
+[Service]
+Type=simple
+User=${RUN_USER}
+Group=${RUN_GROUP}
+WorkingDirectory=${REPO_DIR}
+Environment="PATH=${REPO_DIR}/.venv/bin:/usr/local/bin:/usr/bin:/bin"
+ExecStart=${REPO_DIR}/scripts/run_production.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+echo "Reloading systemd daemon..."
+systemctl daemon-reload
+
+echo "Enabling service..."
+systemctl enable "$SERVICE_NAME"
+
+echo "Restarting service..."
+systemctl restart "$SERVICE_NAME"
 
 echo ""
 echo "Service installed and started."
-echo "Logs: $LOG_DIR"
+echo "Logs: sudo journalctl -u ${SERVICE_NAME} -f"
 echo ""
 echo "Useful commands:"
-echo "  Stop:    launchctl unload ~/Library/LaunchAgents/${PLIST_NAME}.plist"
-echo "  Start:   launchctl load   ~/Library/LaunchAgents/${PLIST_NAME}.plist"
-echo "  Restart: launchctl kickstart -k gui/\$(id -u)/${PLIST_NAME}"
-echo "  Logs:    tail -f ${LOG_DIR}/stdout.log"
+echo "  Stop:    sudo systemctl stop ${SERVICE_NAME}"
+echo "  Start:   sudo systemctl start ${SERVICE_NAME}"
+echo "  Restart: sudo systemctl restart ${SERVICE_NAME}"
+echo "  Status:  sudo systemctl status ${SERVICE_NAME}"
+echo "  Logs:    sudo journalctl -u ${SERVICE_NAME} -f"
