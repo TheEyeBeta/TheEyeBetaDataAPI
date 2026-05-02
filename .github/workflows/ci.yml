@@ -33,3 +33,11 @@ jobs:
         run: |
           pytest
 
+  deploy:
+    needs: test
+    runs-on: self-hosted
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
+      - name: Deploy to production
+        run: bash /home/user/TheEyeBetaDataAPI/scripts/deploy.sh
