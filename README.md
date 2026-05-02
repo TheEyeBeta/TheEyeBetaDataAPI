@@ -47,26 +47,72 @@ Secure multi-client data access layer between private PostgreSQL and external/in
 - `GET /api/v1/admin/audit-events`
 - `POST /api/v1/internal/jobs/rebuild-indicators`
 
-## Local run
+## Production setup (Mac Mini — one time)
+
+The app runs natively on the machine — no Docker required.
+
+**1. Generate your `.env`:**
 
 ```bash
-cd /home/the-eye-beta/TheEyeBeta2025/TheEyeBetaDataAPI
+cd /path/to/TheEyeBetaDataAPI
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 python scripts/bootstrap_local_env.py \
-  --database-url "postgresql+psycopg://postgres:REPLACE_ME@host.docker.internal:5432/TheEyeBeta2025Live"
-bash scripts/run_production.sh
+  --database-url "postgresql+psycopg://postgres:REPLACE_ME@localhost:5432/TheEyeBeta2025Live"
+```
+
+If running behind Cloudflare Tunnel, add `--trust-proxy-headers`.
+
+**2. Install as a background service (starts on boot, restarts on crash):**
+
+```bash
+bash scripts/install_service.sh
+```
+
+Logs are written to `~/Library/Logs/theeyebeta-dataapi/`.
+
+**3. Install the GitHub Actions self-hosted runner (auto-deploys on push to `main`):**
+
+Go to: **GitHub → repo Settings → Actions → Runners → New self-hosted runner → macOS**
+
+Run the commands GitHub provides, then:
+
+```bash
+cd actions-runner
+sudo ./svc.sh install
+sudo ./svc.sh start
+```
+
+After this, every push to `main` that passes CI will automatically pull the latest code, update dependencies, restart the service, and verify `/health`.
+
+## Local development
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements-dev.txt
+python scripts/bootstrap_local_env.py \
+  --database-url "postgresql+psycopg://postgres:REPLACE_ME@localhost:5432/TheEyeBeta2025Live"
+bash scripts/run_local.sh
 ```
 
 Default bind: `127.0.0.1:7000`
 
-If you are running behind Cloudflare Tunnel locally, generate `.env` with trusted proxy headers enabled:
+## Service management
 
 ```bash
-python scripts/bootstrap_local_env.py \
-  --database-url "postgresql+psycopg://postgres:REPLACE_ME@host.docker.internal:5432/TheEyeBeta2025Live" \
-  --trust-proxy-headers
+# Restart
+launchctl kickstart -k gui/$(id -u)/com.theeyebeta.dataapi
+
+# Stop
+launchctl unload ~/Library/LaunchAgents/com.theeyebeta.dataapi.plist
+
+# Start
+launchctl load ~/Library/LaunchAgents/com.theeyebeta.dataapi.plist
+
+# Logs
+tail -f ~/Library/Logs/theeyebeta-dataapi/stdout.log
 ```
 
 ## Quick verification
@@ -88,7 +134,7 @@ curl -s "http://127.0.0.1:7000/api/v1/advisor/context?ticker=AAPL" \
   -H "Authorization: Bearer ${TOKEN}"
 ```
 
-Remote smoke:
+Remote smoke test:
 
 ```bash
 API_BASE_URL="https://api.theeyebeta.store" \
@@ -125,21 +171,20 @@ ingress:
   - `SERVICE_MTLS_SUBJECTS_JSON`
   - `TRUST_PROXY_HEADERS=true`
 
-## Rotate local secrets
+## Rotate secrets
 
 ```bash
-cd /home/the-eye-beta/TheEyeBeta2025/TheEyeBetaDataAPI
 source .venv/bin/activate
 python scripts/rotate_secrets.py
 ```
 
-This rotates `JWT_SECRET`, `USER_JWT_SECRET`, and all `SERVICE_CLIENTS_JSON` client secrets.
+Rotates `JWT_SECRET`, `USER_JWT_SECRET`, and all `SERVICE_CLIENTS_JSON` client secrets.
 
 ## DB-backed API key schema
 
-See [API_KEY_SCHEMA_RUNBOOK.md](/home/the-eye-beta/TheEyeBeta2025/TheEyeBetaDataAPI/docs/API_KEY_SCHEMA_RUNBOOK.md) for PostgreSQL schema and provisioning/rotation SQL for DB-backed service API keys.
+See `docs/API_KEY_SCHEMA_RUNBOOK.md` for PostgreSQL schema and provisioning SQL.
 
-Provision/update a DB-backed service credential from CLI:
+Provision a DB-backed service credential:
 
 ```bash
 python scripts/provision_db_service_client.py \
@@ -149,25 +194,11 @@ python scripts/provision_db_service_client.py \
   --allow-existing
 ```
 
-## Laptop E2E test
+## E2E verification
 
-Use [OTHEREND_TEST.md](/home/the-eye-beta/TheEyeBeta2025/TheEyeBetaDataAPI/OTHEREND_TEST.md) for a complete laptop verification workflow with sample successful responses.
+See `OTHEREND_TEST.md` for a complete verification workflow with sample responses.
 
 ## TypeScript frontend tester
-
-```bash
-cd /home/the-eye-beta/TheEyeBeta2025/TheEyeBetaDataAPIFrontendSanity
-npm install
-npm start
-```
-
-Configure `/home/the-eye-beta/TheEyeBeta2025/TheEyeBetaDataAPIFrontendSanity/.env` with `SERVICE_CLIENT_ID` and `SERVICE_CLIENT_SECRET` (or copy `.env.example` to `.env` and fill values).
-
-## Reusable plugin
-
-- `packages/theeyebeta-dataapi-plugin`
-
-Build:
 
 ```bash
 cd packages/theeyebeta-dataapi-plugin
