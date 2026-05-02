@@ -2,10 +2,10 @@
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-COMPOSE_FILE="$REPO_DIR/docker-compose.yml"
 HEALTH_URL="http://127.0.0.1:7000/health"
 HEALTH_RETRIES=15
 HEALTH_INTERVAL=4
+PLIST_NAME="com.theeyebeta.dataapi"
 
 log() { echo "[deploy] $(date '+%Y-%m-%d %H:%M:%S') $*"; }
 
@@ -15,8 +15,11 @@ log "Pulling latest code from origin..."
 git fetch origin main
 git reset --hard origin/main
 
-log "Building and restarting services..."
-docker compose -f "$COMPOSE_FILE" up --build -d --remove-orphans
+log "Installing dependencies..."
+"$REPO_DIR/.venv/bin/pip" install -q -r "$REPO_DIR/requirements.txt"
+
+log "Restarting service..."
+launchctl kickstart -k "gui/$(id -u)/${PLIST_NAME}"
 
 log "Waiting for health check at $HEALTH_URL..."
 for i in $(seq 1 $HEALTH_RETRIES); do
@@ -29,5 +32,5 @@ for i in $(seq 1 $HEALTH_RETRIES); do
 done
 
 log "ERROR: Service did not become healthy after $((HEALTH_RETRIES * HEALTH_INTERVAL))s."
-docker compose -f "$COMPOSE_FILE" logs --tail=50 dataapi
+tail -50 "$HOME/Library/Logs/theeyebeta-dataapi/stderr.log" 2>/dev/null || true
 exit 1
