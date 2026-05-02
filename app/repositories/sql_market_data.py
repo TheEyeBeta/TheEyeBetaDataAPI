@@ -15,14 +15,36 @@ from sqlalchemy.orm import Session
 from app.domain.errors import DatabaseUnavailableError, ValidationAppError
 from app.domain.models import (
     AdminAuditEvent,
+    BalanceSheetQ,
+    CashFlowQ,
+    CompanyFundamentals,
+    CorporateAction,
+    Country,
+    Currency,
+    EngineStatusEntry,
+    EtlJobState,
+    Exchange,
+    Industry,
+    IncomeStatementQ,
     InternalJobReceipt,
     MarketNewsItem,
     PortfolioPosition,
     PortfolioValuation,
+    PriceDay,
+    PriceTick,
+    QualityQ,
+    ReturnsDay,
+    RiskDay,
+    Sector,
     SignalRecord,
+    TechnicalDay,
+    TickerDetail,
+    TickerNewsItem,
     TickerSnapshot,
     TickerSummary,
     TradeOrderResult,
+    TradingCalendarDay,
+    ValuationDay,
 )
 from app.repositories.interfaces import MarketDataRepository
 
@@ -647,6 +669,700 @@ class SQLMarketDataRepository(MarketDataRepository):
         except SQLAlchemyError:
             logger.warning("iam.service_clients table not available")
             return []
+
+    # ── Reference / lookup ────────────────────────────────────────────────────
+
+    def get_countries(self) -> list[Country]:
+        try:
+            rows = self._session.execute(
+                text("SELECT country_code, country_name, default_timezone FROM countries ORDER BY country_name")
+            ).mappings().all()
+            return [Country(country_code=str(r["country_code"]), country_name=str(r["country_name"]), default_timezone=str(r["default_timezone"]) if r.get("default_timezone") else None) for r in rows]
+        except SQLAlchemyError as exc:
+            logger.exception("get_countries failed")
+            raise DatabaseUnavailableError("Unable to fetch countries") from exc
+
+    def get_currencies(self) -> list[Currency]:
+        try:
+            rows = self._session.execute(
+                text("SELECT currency_code, currency_name, symbol FROM currencies ORDER BY currency_code")
+            ).mappings().all()
+            return [Currency(currency_code=str(r["currency_code"]), currency_name=str(r["currency_name"]), symbol=str(r["symbol"]) if r.get("symbol") else None) for r in rows]
+        except SQLAlchemyError as exc:
+            logger.exception("get_currencies failed")
+            raise DatabaseUnavailableError("Unable to fetch currencies") from exc
+
+    def get_exchanges(self) -> list[Exchange]:
+        try:
+            rows = self._session.execute(
+                text("SELECT exchange_id, name, mic_code, country_code, timezone FROM exchanges ORDER BY name")
+            ).mappings().all()
+            return [
+                Exchange(
+                    exchange_id=int(r["exchange_id"]),
+                    name=str(r["name"]),
+                    mic_code=str(r["mic_code"]) if r.get("mic_code") else None,
+                    country_code=str(r["country_code"]) if r.get("country_code") else None,
+                    timezone=str(r["timezone"]) if r.get("timezone") else None,
+                )
+                for r in rows
+            ]
+        except SQLAlchemyError as exc:
+            logger.exception("get_exchanges failed")
+            raise DatabaseUnavailableError("Unable to fetch exchanges") from exc
+
+    def get_sectors(self) -> list[Sector]:
+        try:
+            rows = self._session.execute(
+                text("SELECT sector_id, sector_name FROM sectors ORDER BY sector_name")
+            ).mappings().all()
+            return [Sector(sector_id=int(r["sector_id"]), sector_name=str(r["sector_name"])) for r in rows]
+        except SQLAlchemyError as exc:
+            logger.exception("get_sectors failed")
+            raise DatabaseUnavailableError("Unable to fetch sectors") from exc
+
+    def get_industries(self, sector_id: int | None = None) -> list[Industry]:
+        try:
+            if sector_id is not None:
+                rows = self._session.execute(
+                    text("SELECT industry_id, sector_id, industry_name FROM industries WHERE sector_id = :sid ORDER BY industry_name"),
+                    {"sid": sector_id},
+                ).mappings().all()
+            else:
+                rows = self._session.execute(
+                    text("SELECT industry_id, sector_id, industry_name FROM industries ORDER BY industry_name")
+                ).mappings().all()
+            return [Industry(industry_id=int(r["industry_id"]), sector_id=int(r["sector_id"]), industry_name=str(r["industry_name"])) for r in rows]
+        except SQLAlchemyError as exc:
+            logger.exception("get_industries failed")
+            raise DatabaseUnavailableError("Unable to fetch industries") from exc
+
+    def get_trading_calendar(self, start: date | None = None, end: date | None = None, limit: int = 90) -> list[TradingCalendarDay]:
+        try:
+            where_parts = []
+            params: dict[str, Any] = {"limit": limit}
+            if start:
+                where_parts.append("calendar_date >= :start")
+                params["start"] = start
+            if end:
+                where_parts.append("calendar_date <= :end")
+                params["end"] = end
+            where = ("WHERE " + " AND ".join(where_parts)) if where_parts else ""
+            rows = self._session.execute(
+                text(f"SELECT calendar_date, is_trading_day, market_name, holiday_name, notes FROM trading_calendar {where} ORDER BY calendar_date DESC LIMIT :limit"),  # noqa: S608
+                params,
+            ).mappings().all()
+            return [
+                TradingCalendarDay(
+                    calendar_date=r["calendar_date"],
+                    is_trading_day=bool(r["is_trading_day"]),
+                    market_name=str(r["market_name"]) if r.get("market_name") else None,
+                    holiday_name=str(r["holiday_name"]) if r.get("holiday_name") else None,
+                    notes=str(r["notes"]) if r.get("notes") else None,
+                )
+                for r in rows
+            ]
+        except SQLAlchemyError as exc:
+            logger.exception("get_trading_calendar failed")
+            raise DatabaseUnavailableError("Unable to fetch trading calendar") from exc
+
+    # ── Ticker detail ─────────────────────────────────────────────────────────
+
+    def get_ticker_detail(self, ticker: str) -> TickerDetail | None:
+        try:
+            row = self._session.execute(
+                text(
+                    """
+                    SELECT
+                        t.ticker, t.company_name, t.asset_type, t.country_code, t.timezone,
+                        t.currency_code, t.is_active,
+                        p.sector_id, p.industry_id, p.website, p.description,
+                        p.founded_year, p.employees
+                    FROM tickers t
+                    LEFT JOIN ticker_profile p ON p.ticker_id = t.ticker_id
+                    WHERE UPPER(t.ticker) = UPPER(:ticker)
+                    """
+                ),
+                {"ticker": ticker},
+            ).mappings().first()
+            if not row:
+                return None
+            id_rows = self._session.execute(
+                text(
+                    """
+                    SELECT ti.id_type, ti.id_value
+                    FROM ticker_identifiers ti
+                    JOIN tickers t ON t.ticker_id = ti.ticker_id
+                    WHERE UPPER(t.ticker) = UPPER(:ticker)
+                    """
+                ),
+                {"ticker": ticker},
+            ).mappings().all()
+            return TickerDetail(
+                ticker=str(row["ticker"]),
+                company_name=str(row["company_name"]),
+                asset_type=str(row["asset_type"]) if row.get("asset_type") else None,
+                country_code=str(row["country_code"]) if row.get("country_code") else None,
+                timezone=str(row["timezone"]) if row.get("timezone") else None,
+                currency_code=str(row["currency_code"]) if row.get("currency_code") else None,
+                is_active=bool(row["is_active"]),
+                sector_id=int(row["sector_id"]) if row.get("sector_id") is not None else None,
+                industry_id=int(row["industry_id"]) if row.get("industry_id") is not None else None,
+                website=str(row["website"]) if row.get("website") else None,
+                description=str(row["description"]) if row.get("description") else None,
+                founded_year=int(row["founded_year"]) if row.get("founded_year") is not None else None,
+                employees=int(row["employees"]) if row.get("employees") is not None else None,
+                identifiers=[{"id_type": str(r["id_type"]), "id_value": str(r["id_value"])} for r in id_rows],
+            )
+        except SQLAlchemyError as exc:
+            logger.exception("get_ticker_detail failed")
+            raise DatabaseUnavailableError("Unable to fetch ticker detail") from exc
+
+    def get_price_history(self, ticker: str, start: date | None = None, end: date | None = None, limit: int = 252) -> list[PriceDay]:
+        try:
+            where_parts = ["UPPER(t.ticker) = UPPER(:ticker)"]
+            params: dict[str, Any] = {"ticker": ticker, "limit": limit}
+            if start:
+                where_parts.append("p.date >= :start")
+                params["start"] = start
+            if end:
+                where_parts.append("p.date <= :end")
+                params["end"] = end
+            where = " AND ".join(where_parts)
+            rows = self._session.execute(
+                text(
+                    f"""
+                    SELECT p.date, p.open, p.high, p.low, p.close, p.adj_close, p.volume, p.vwap
+                    FROM price_daily p
+                    JOIN tickers t ON t.ticker_id = p.ticker_id
+                    WHERE {where}
+                    ORDER BY p.date DESC
+                    LIMIT :limit
+                    """  # noqa: S608
+                ),
+                params,
+            ).mappings().all()
+            return [
+                PriceDay(
+                    date=r["date"],
+                    open=_to_float(r.get("open")),
+                    high=_to_float(r.get("high")),
+                    low=_to_float(r.get("low")),
+                    close=_to_float(r.get("close")),
+                    adj_close=_to_float(r.get("adj_close")),
+                    volume=_to_float(r.get("volume")),
+                    vwap=_to_float(r.get("vwap")),
+                )
+                for r in rows
+            ]
+        except SQLAlchemyError as exc:
+            logger.exception("get_price_history failed")
+            raise DatabaseUnavailableError("Unable to fetch price history") from exc
+
+    def get_corporate_actions(self, ticker: str, limit: int = 50) -> list[CorporateAction]:
+        try:
+            rows = self._session.execute(
+                text(
+                    """
+                    SELECT ca.action_id, ca.action_date, ca.action_type,
+                           ca.split_ratio, ca.dividend_amount, ca.notes
+                    FROM corporate_actions ca
+                    JOIN tickers t ON t.ticker_id = ca.ticker_id
+                    WHERE UPPER(t.ticker) = UPPER(:ticker)
+                    ORDER BY ca.action_date DESC
+                    LIMIT :limit
+                    """
+                ),
+                {"ticker": ticker, "limit": limit},
+            ).mappings().all()
+            return [
+                CorporateAction(
+                    action_id=int(r["action_id"]),
+                    action_date=_to_date(r.get("action_date")),
+                    action_type=str(r["action_type"]),
+                    split_ratio=_to_float(r.get("split_ratio")),
+                    dividend_amount=_to_float(r.get("dividend_amount")),
+                    notes=str(r["notes"]) if r.get("notes") else None,
+                )
+                for r in rows
+            ]
+        except SQLAlchemyError as exc:
+            logger.exception("get_corporate_actions failed")
+            raise DatabaseUnavailableError("Unable to fetch corporate actions") from exc
+
+    def get_company_fundamentals(self, ticker: str) -> CompanyFundamentals | None:
+        try:
+            row = self._session.execute(
+                text(
+                    """
+                    SELECT f.sector, f.industry, f.sub_industry, f.ceo, f.full_time_employees,
+                           f.headquarters_city, f.headquarters_state, f.headquarters_country,
+                           f.market_cap, f.enterprise_value, f.shares_outstanding, f.float_shares,
+                           f.pe_ratio, f.pe_forward, f.peg_ratio, f.price_to_book, f.price_to_sales,
+                           f.ev_to_ebitda, f.ev_to_revenue, f.dividend_rate, f.dividend_yield,
+                           f.ex_dividend_date, f.payout_ratio, f.currency, f.source, f.last_updated
+                    FROM fundamentals_company f
+                    JOIN tickers t ON t.ticker_id = f.ticker_id
+                    WHERE UPPER(t.ticker) = UPPER(:ticker)
+                    """
+                ),
+                {"ticker": ticker},
+            ).mappings().first()
+            if not row:
+                return None
+            return CompanyFundamentals(
+                sector=str(row["sector"]) if row.get("sector") else None,
+                industry=str(row["industry"]) if row.get("industry") else None,
+                sub_industry=str(row["sub_industry"]) if row.get("sub_industry") else None,
+                ceo=str(row["ceo"]) if row.get("ceo") else None,
+                full_time_employees=int(row["full_time_employees"]) if row.get("full_time_employees") is not None else None,
+                headquarters_city=str(row["headquarters_city"]) if row.get("headquarters_city") else None,
+                headquarters_state=str(row["headquarters_state"]) if row.get("headquarters_state") else None,
+                headquarters_country=str(row["headquarters_country"]) if row.get("headquarters_country") else None,
+                market_cap=_to_float(row.get("market_cap")),
+                enterprise_value=_to_float(row.get("enterprise_value")),
+                shares_outstanding=_to_float(row.get("shares_outstanding")),
+                float_shares=_to_float(row.get("float_shares")),
+                pe_ratio=_to_float(row.get("pe_ratio")),
+                pe_forward=_to_float(row.get("pe_forward")),
+                peg_ratio=_to_float(row.get("peg_ratio")),
+                price_to_book=_to_float(row.get("price_to_book")),
+                price_to_sales=_to_float(row.get("price_to_sales")),
+                ev_to_ebitda=_to_float(row.get("ev_to_ebitda")),
+                ev_to_revenue=_to_float(row.get("ev_to_revenue")),
+                dividend_rate=_to_float(row.get("dividend_rate")),
+                dividend_yield=_to_float(row.get("dividend_yield")),
+                ex_dividend_date=_to_date(row.get("ex_dividend_date")),
+                payout_ratio=_to_float(row.get("payout_ratio")),
+                currency=str(row["currency"]) if row.get("currency") else None,
+                source=str(row["source"]) if row.get("source") else None,
+                last_updated=_to_datetime(row.get("last_updated")),
+            )
+        except SQLAlchemyError as exc:
+            logger.exception("get_company_fundamentals failed")
+            raise DatabaseUnavailableError("Unable to fetch company fundamentals") from exc
+
+    # ── Financial statements ──────────────────────────────────────────────────
+
+    def _quarterly_params(self, ticker: str, limit: int) -> tuple[str, dict[str, Any]]:
+        return "UPPER(t.ticker) = UPPER(:ticker)", {"ticker": ticker, "limit": limit}
+
+    def get_income_statements(self, ticker: str, limit: int = 12) -> list[IncomeStatementQ]:
+        try:
+            rows = self._session.execute(
+                text(
+                    """
+                    SELECT fi.period_end, fi.fiscal_year, fi.fiscal_quarter,
+                           fi.revenue, fi.gross_profit, fi.ebit, fi.ebitda,
+                           fi.interest_expense, fi.net_income, fi.eps_basic, fi.eps_diluted
+                    FROM fund_income_q fi
+                    JOIN tickers t ON t.ticker_id = fi.ticker_id
+                    WHERE UPPER(t.ticker) = UPPER(:ticker)
+                    ORDER BY fi.period_end DESC
+                    LIMIT :limit
+                    """
+                ),
+                {"ticker": ticker, "limit": limit},
+            ).mappings().all()
+            return [
+                IncomeStatementQ(
+                    period_end=_to_date(r.get("period_end")),
+                    fiscal_year=int(r["fiscal_year"]) if r.get("fiscal_year") is not None else None,
+                    fiscal_quarter=int(r["fiscal_quarter"]) if r.get("fiscal_quarter") is not None else None,
+                    revenue=_to_float(r.get("revenue")),
+                    gross_profit=_to_float(r.get("gross_profit")),
+                    ebit=_to_float(r.get("ebit")),
+                    ebitda=_to_float(r.get("ebitda")),
+                    interest_expense=_to_float(r.get("interest_expense")),
+                    net_income=_to_float(r.get("net_income")),
+                    eps_basic=_to_float(r.get("eps_basic")),
+                    eps_diluted=_to_float(r.get("eps_diluted")),
+                )
+                for r in rows
+            ]
+        except SQLAlchemyError as exc:
+            logger.exception("get_income_statements failed")
+            raise DatabaseUnavailableError("Unable to fetch income statements") from exc
+
+    def get_balance_sheets(self, ticker: str, limit: int = 12) -> list[BalanceSheetQ]:
+        try:
+            rows = self._session.execute(
+                text(
+                    """
+                    SELECT fb.period_end, fb.fiscal_year, fb.fiscal_quarter,
+                           fb.total_assets, fb.total_liabilities, fb.total_equity,
+                           fb.total_debt, fb.cash_and_equivalents, fb.shares_outstanding
+                    FROM fund_balance_q fb
+                    JOIN tickers t ON t.ticker_id = fb.ticker_id
+                    WHERE UPPER(t.ticker) = UPPER(:ticker)
+                    ORDER BY fb.period_end DESC
+                    LIMIT :limit
+                    """
+                ),
+                {"ticker": ticker, "limit": limit},
+            ).mappings().all()
+            return [
+                BalanceSheetQ(
+                    period_end=_to_date(r.get("period_end")),
+                    fiscal_year=int(r["fiscal_year"]) if r.get("fiscal_year") is not None else None,
+                    fiscal_quarter=int(r["fiscal_quarter"]) if r.get("fiscal_quarter") is not None else None,
+                    total_assets=_to_float(r.get("total_assets")),
+                    total_liabilities=_to_float(r.get("total_liabilities")),
+                    total_equity=_to_float(r.get("total_equity")),
+                    total_debt=_to_float(r.get("total_debt")),
+                    cash_and_equivalents=_to_float(r.get("cash_and_equivalents")),
+                    shares_outstanding=_to_float(r.get("shares_outstanding")),
+                )
+                for r in rows
+            ]
+        except SQLAlchemyError as exc:
+            logger.exception("get_balance_sheets failed")
+            raise DatabaseUnavailableError("Unable to fetch balance sheets") from exc
+
+    def get_cash_flows(self, ticker: str, limit: int = 12) -> list[CashFlowQ]:
+        try:
+            rows = self._session.execute(
+                text(
+                    """
+                    SELECT fc.period_end, fc.fiscal_year, fc.fiscal_quarter,
+                           fc.ocf, fc.capex, fc.fcf, fc.working_cap_change, fc.stock_based_comp
+                    FROM fund_cashflow_q fc
+                    JOIN tickers t ON t.ticker_id = fc.ticker_id
+                    WHERE UPPER(t.ticker) = UPPER(:ticker)
+                    ORDER BY fc.period_end DESC
+                    LIMIT :limit
+                    """
+                ),
+                {"ticker": ticker, "limit": limit},
+            ).mappings().all()
+            return [
+                CashFlowQ(
+                    period_end=_to_date(r.get("period_end")),
+                    fiscal_year=int(r["fiscal_year"]) if r.get("fiscal_year") is not None else None,
+                    fiscal_quarter=int(r["fiscal_quarter"]) if r.get("fiscal_quarter") is not None else None,
+                    ocf=_to_float(r.get("ocf")),
+                    capex=_to_float(r.get("capex")),
+                    fcf=_to_float(r.get("fcf")),
+                    working_cap_change=_to_float(r.get("working_cap_change")),
+                    stock_based_comp=_to_float(r.get("stock_based_comp")),
+                )
+                for r in rows
+            ]
+        except SQLAlchemyError as exc:
+            logger.exception("get_cash_flows failed")
+            raise DatabaseUnavailableError("Unable to fetch cash flows") from exc
+
+    def get_quality_metrics(self, ticker: str, limit: int = 12) -> list[QualityQ]:
+        try:
+            rows = self._session.execute(
+                text(
+                    """
+                    SELECT iq.period_end, iq.fiscal_year, iq.fiscal_quarter,
+                           iq.nopat, iq.invested_capital, iq.roic, iq.roe, iq.roa, iq.roce,
+                           iq.wacc, iq.cost_of_equity, iq.cost_of_debt, iq.roic_wacc_spread,
+                           iq.debt_equity, iq.net_debt_ebitda, iq.interest_coverage, iq.ocf, iq.fcf
+                    FROM ind_quality_q iq
+                    JOIN tickers t ON t.ticker_id = iq.ticker_id
+                    WHERE UPPER(t.ticker) = UPPER(:ticker)
+                    ORDER BY iq.period_end DESC
+                    LIMIT :limit
+                    """
+                ),
+                {"ticker": ticker, "limit": limit},
+            ).mappings().all()
+            return [
+                QualityQ(
+                    period_end=_to_date(r.get("period_end")),
+                    fiscal_year=int(r["fiscal_year"]) if r.get("fiscal_year") is not None else None,
+                    fiscal_quarter=int(r["fiscal_quarter"]) if r.get("fiscal_quarter") is not None else None,
+                    nopat=_to_float(r.get("nopat")),
+                    invested_capital=_to_float(r.get("invested_capital")),
+                    roic=_to_float(r.get("roic")),
+                    roe=_to_float(r.get("roe")),
+                    roa=_to_float(r.get("roa")),
+                    roce=_to_float(r.get("roce")),
+                    wacc=_to_float(r.get("wacc")),
+                    cost_of_equity=_to_float(r.get("cost_of_equity")),
+                    cost_of_debt=_to_float(r.get("cost_of_debt")),
+                    roic_wacc_spread=_to_float(r.get("roic_wacc_spread")),
+                    debt_equity=_to_float(r.get("debt_equity")),
+                    net_debt_ebitda=_to_float(r.get("net_debt_ebitda")),
+                    interest_coverage=_to_float(r.get("interest_coverage")),
+                    ocf=_to_float(r.get("ocf")),
+                    fcf=_to_float(r.get("fcf")),
+                )
+                for r in rows
+            ]
+        except SQLAlchemyError as exc:
+            logger.exception("get_quality_metrics failed")
+            raise DatabaseUnavailableError("Unable to fetch quality metrics") from exc
+
+    # ── Indicator time-series ─────────────────────────────────────────────────
+
+    def _date_range_params(self, ticker: str, start: date | None, end: date | None, limit: int) -> tuple[str, dict[str, Any]]:
+        parts = ["UPPER(t.ticker) = UPPER(:ticker)"]
+        params: dict[str, Any] = {"ticker": ticker, "limit": limit}
+        if start:
+            parts.append("i.date >= :start")
+            params["start"] = start
+        if end:
+            parts.append("i.date <= :end")
+            params["end"] = end
+        return " AND ".join(parts), params
+
+    def get_technical_indicators(self, ticker: str, start: date | None = None, end: date | None = None, limit: int = 252) -> list[TechnicalDay]:
+        try:
+            where, params = self._date_range_params(ticker, start, end, limit)
+            rows = self._session.execute(
+                text(
+                    f"""
+                    SELECT i.date, i.sma_10, i.sma_50, i.sma_200, i.ema_10, i.ema_50, i.ema_200,
+                           i.ema_12, i.ema_26, i.rsi_14, i.macd, i.macd_signal, i.macd_hist,
+                           i.roc_10, i.roc_20, i.golden_cross_sma, i.death_cross_sma
+                    FROM ind_technical_daily i
+                    JOIN tickers t ON t.ticker_id = i.ticker_id
+                    WHERE {where}
+                    ORDER BY i.date DESC
+                    LIMIT :limit
+                    """  # noqa: S608
+                ),
+                params,
+            ).mappings().all()
+            return [
+                TechnicalDay(
+                    date=r["date"],
+                    sma_10=_to_float(r.get("sma_10")), sma_50=_to_float(r.get("sma_50")), sma_200=_to_float(r.get("sma_200")),
+                    ema_10=_to_float(r.get("ema_10")), ema_50=_to_float(r.get("ema_50")), ema_200=_to_float(r.get("ema_200")),
+                    ema_12=_to_float(r.get("ema_12")), ema_26=_to_float(r.get("ema_26")),
+                    rsi_14=_to_float(r.get("rsi_14")),
+                    macd=_to_float(r.get("macd")), macd_signal=_to_float(r.get("macd_signal")), macd_hist=_to_float(r.get("macd_hist")),
+                    roc_10=_to_float(r.get("roc_10")), roc_20=_to_float(r.get("roc_20")),
+                    golden_cross_sma=bool(r["golden_cross_sma"]) if r.get("golden_cross_sma") is not None else None,
+                    death_cross_sma=bool(r["death_cross_sma"]) if r.get("death_cross_sma") is not None else None,
+                )
+                for r in rows
+            ]
+        except SQLAlchemyError as exc:
+            logger.exception("get_technical_indicators failed")
+            raise DatabaseUnavailableError("Unable to fetch technical indicators") from exc
+
+    def get_risk_indicators(self, ticker: str, start: date | None = None, end: date | None = None, limit: int = 252) -> list[RiskDay]:
+        try:
+            where, params = self._date_range_params(ticker, start, end, limit)
+            rows = self._session.execute(
+                text(
+                    f"""
+                    SELECT i.date, i.atr_14, i.hist_vol_20d, i.hist_vol_60d, i.beta_sp500_60d,
+                           i.worst_drop_1d, i.worst_drop_5d, i.worst_drop_10d,
+                           i.max_drawdown_1y, i.max_drawdown_2y,
+                           i.sharpe_60d, i.sortino_60d, i.calmar_1y
+                    FROM ind_risk_daily i
+                    JOIN tickers t ON t.ticker_id = i.ticker_id
+                    WHERE {where}
+                    ORDER BY i.date DESC
+                    LIMIT :limit
+                    """  # noqa: S608
+                ),
+                params,
+            ).mappings().all()
+            return [
+                RiskDay(
+                    date=r["date"],
+                    atr_14=_to_float(r.get("atr_14")),
+                    hist_vol_20d=_to_float(r.get("hist_vol_20d")), hist_vol_60d=_to_float(r.get("hist_vol_60d")),
+                    beta_sp500_60d=_to_float(r.get("beta_sp500_60d")),
+                    worst_drop_1d=_to_float(r.get("worst_drop_1d")), worst_drop_5d=_to_float(r.get("worst_drop_5d")), worst_drop_10d=_to_float(r.get("worst_drop_10d")),
+                    max_drawdown_1y=_to_float(r.get("max_drawdown_1y")), max_drawdown_2y=_to_float(r.get("max_drawdown_2y")),
+                    sharpe_60d=_to_float(r.get("sharpe_60d")), sortino_60d=_to_float(r.get("sortino_60d")), calmar_1y=_to_float(r.get("calmar_1y")),
+                )
+                for r in rows
+            ]
+        except SQLAlchemyError as exc:
+            logger.exception("get_risk_indicators failed")
+            raise DatabaseUnavailableError("Unable to fetch risk indicators") from exc
+
+    def get_valuation_indicators(self, ticker: str, start: date | None = None, end: date | None = None, limit: int = 252) -> list[ValuationDay]:
+        try:
+            where, params = self._date_range_params(ticker, start, end, limit)
+            rows = self._session.execute(
+                text(
+                    f"""
+                    SELECT i.date, i.market_cap, i.enterprise_value,
+                           i.pe_ttm, i.forward_pe, i.ps_ttm, i.pb, i.ev_ebitda, i.ev_ebit, i.ev_fcf,
+                           i.earnings_yield, i.fcf_yield,
+                           i.pct_chg_1w, i.pct_chg_3m, i.pct_chg_6m, i.pct_chg_9m, i.pct_chg_ytd, i.pct_chg_1y
+                    FROM ind_valuation_daily i
+                    JOIN tickers t ON t.ticker_id = i.ticker_id
+                    WHERE {where}
+                    ORDER BY i.date DESC
+                    LIMIT :limit
+                    """  # noqa: S608
+                ),
+                params,
+            ).mappings().all()
+            return [
+                ValuationDay(
+                    date=r["date"],
+                    market_cap=_to_float(r.get("market_cap")), enterprise_value=_to_float(r.get("enterprise_value")),
+                    pe_ttm=_to_float(r.get("pe_ttm")), forward_pe=_to_float(r.get("forward_pe")),
+                    ps_ttm=_to_float(r.get("ps_ttm")), pb=_to_float(r.get("pb")),
+                    ev_ebitda=_to_float(r.get("ev_ebitda")), ev_ebit=_to_float(r.get("ev_ebit")), ev_fcf=_to_float(r.get("ev_fcf")),
+                    earnings_yield=_to_float(r.get("earnings_yield")), fcf_yield=_to_float(r.get("fcf_yield")),
+                    pct_chg_1w=_to_float(r.get("pct_chg_1w")), pct_chg_3m=_to_float(r.get("pct_chg_3m")),
+                    pct_chg_6m=_to_float(r.get("pct_chg_6m")), pct_chg_9m=_to_float(r.get("pct_chg_9m")),
+                    pct_chg_ytd=_to_float(r.get("pct_chg_ytd")), pct_chg_1y=_to_float(r.get("pct_chg_1y")),
+                )
+                for r in rows
+            ]
+        except SQLAlchemyError as exc:
+            logger.exception("get_valuation_indicators failed")
+            raise DatabaseUnavailableError("Unable to fetch valuation indicators") from exc
+
+    def get_returns_snapshot(self, ticker: str, start: date | None = None, end: date | None = None, limit: int = 252) -> list[ReturnsDay]:
+        try:
+            where, params = self._date_range_params(ticker, start, end, limit)
+            rows = self._session.execute(
+                text(
+                    f"""
+                    SELECT i.date, i.ret_1w, i.ret_1m, i.ret_3m, i.ret_6m, i.ret_9m, i.ret_ytd, i.ret_1y,
+                           i.price_field, i.computed_at
+                    FROM returns_snapshot_daily i
+                    JOIN tickers t ON t.ticker_id = i.ticker_id
+                    WHERE {where}
+                    ORDER BY i.date DESC
+                    LIMIT :limit
+                    """  # noqa: S608
+                ),
+                params,
+            ).mappings().all()
+            return [
+                ReturnsDay(
+                    date=r["date"],
+                    ret_1w=_to_float(r.get("ret_1w")), ret_1m=_to_float(r.get("ret_1m")),
+                    ret_3m=_to_float(r.get("ret_3m")), ret_6m=_to_float(r.get("ret_6m")),
+                    ret_9m=_to_float(r.get("ret_9m")), ret_ytd=_to_float(r.get("ret_ytd")),
+                    ret_1y=_to_float(r.get("ret_1y")),
+                    price_field=str(r["price_field"]) if r.get("price_field") else None,
+                    computed_at=_to_datetime(r.get("computed_at")),
+                )
+                for r in rows
+            ]
+        except SQLAlchemyError as exc:
+            logger.exception("get_returns_snapshot failed")
+            raise DatabaseUnavailableError("Unable to fetch returns snapshot") from exc
+
+    # ── News ──────────────────────────────────────────────────────────────────
+
+    def get_ticker_news(self, ticker: str, limit: int = 20) -> list[TickerNewsItem]:
+        try:
+            rows = self._session.execute(
+                text(
+                    """
+                    SELECT n.news_id, n.source, n.title, n.url, n.published_at,
+                           n.summary, n.sentiment, n.sentiment_score
+                    FROM news n
+                    JOIN tickers t ON t.ticker_id = n.ticker_id
+                    WHERE UPPER(t.ticker) = UPPER(:ticker)
+                    ORDER BY n.published_at DESC
+                    LIMIT :limit
+                    """
+                ),
+                {"ticker": ticker, "limit": limit},
+            ).mappings().all()
+            return [
+                TickerNewsItem(
+                    news_id=int(r["news_id"]),
+                    source=str(r["source"]) if r.get("source") else None,
+                    title=str(r["title"]) if r.get("title") else None,
+                    url=str(r["url"]) if r.get("url") else None,
+                    published_at=_to_datetime(r.get("published_at")),
+                    summary=str(r["summary"]) if r.get("summary") else None,
+                    sentiment=str(r["sentiment"]) if r.get("sentiment") else None,
+                    sentiment_score=_to_float(r.get("sentiment_score")),
+                )
+                for r in rows
+            ]
+        except SQLAlchemyError as exc:
+            logger.exception("get_ticker_news failed")
+            raise DatabaseUnavailableError("Unable to fetch ticker news") from exc
+
+    # ── Admin-only ────────────────────────────────────────────────────────────
+
+    def get_etl_job_states(self) -> list[EtlJobState]:
+        try:
+            rows = self._session.execute(
+                text(
+                    """
+                    SELECT job_name, last_run_at, last_successful_date, status, last_error
+                    FROM etl_job_state
+                    ORDER BY job_name
+                    """
+                )
+            ).mappings().all()
+            return [
+                EtlJobState(
+                    job_name=str(r["job_name"]),
+                    last_run_at=_to_datetime(r.get("last_run_at")),
+                    last_successful_date=_to_date(r.get("last_successful_date")),
+                    status=str(r["status"]) if r.get("status") else None,
+                    last_error=str(r["last_error"]) if r.get("last_error") else None,
+                )
+                for r in rows
+            ]
+        except SQLAlchemyError as exc:
+            logger.exception("get_etl_job_states failed")
+            raise DatabaseUnavailableError("Unable to fetch ETL job states") from exc
+
+    def get_engine_status(self) -> list[EngineStatusEntry]:
+        try:
+            rows = self._session.execute(
+                text("SELECT key, value, updated_at FROM engine_status ORDER BY key")
+            ).mappings().all()
+            return [
+                EngineStatusEntry(
+                    key=str(r["key"]),
+                    value=str(r["value"]) if r.get("value") is not None else None,
+                    updated_at=_to_datetime(r.get("updated_at")),
+                )
+                for r in rows
+            ]
+        except SQLAlchemyError as exc:
+            logger.exception("get_engine_status failed")
+            raise DatabaseUnavailableError("Unable to fetch engine status") from exc
+
+    def get_price_ticks(self, ticker: str, limit: int = 100) -> list[PriceTick]:
+        try:
+            rows = self._session.execute(
+                text(
+                    """
+                    SELECT pt.tick_id, pt.ts, pt.price, pt.open, pt.high, pt.low, pt.close,
+                           pt.volume, pt.source
+                    FROM price_ticks pt
+                    JOIN tickers t ON t.ticker_id = pt.ticker_id
+                    WHERE UPPER(t.ticker) = UPPER(:ticker)
+                    ORDER BY pt.ts DESC
+                    LIMIT :limit
+                    """
+                ),
+                {"ticker": ticker, "limit": limit},
+            ).mappings().all()
+            return [
+                PriceTick(
+                    tick_id=int(r["tick_id"]),
+                    ts=_to_datetime(r.get("ts")),
+                    price=_to_float(r.get("price")),
+                    open=_to_float(r.get("open")),
+                    high=_to_float(r.get("high")),
+                    low=_to_float(r.get("low")),
+                    close=_to_float(r.get("close")),
+                    volume=_to_float(r.get("volume")),
+                    source=str(r["source"]) if r.get("source") else None,
+                )
+                for r in rows
+            ]
+        except SQLAlchemyError as exc:
+            logger.exception("get_price_ticks failed")
+            raise DatabaseUnavailableError("Unable to fetch price ticks") from exc
 
     def enqueue_internal_job(
         self,

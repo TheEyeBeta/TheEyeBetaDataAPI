@@ -5,11 +5,18 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import HTMLResponse, JSONResponse
 
-from app.api.dependencies.services import get_admin_service
+from app.api.dependencies.services import get_admin_service, get_market_data_service
 from app.auth.dependencies import require_scopes
 from app.auth.scopes import SCOPE_ADMIN_READ
-from app.schemas.market import AdminAuditEventsResponse
+from app.schemas.market import (
+    AdminAuditEventsResponse,
+    EngineStatusResponse,
+    EtlJobStatesResponse,
+    PriceTicksResponse,
+    WorkerHeartbeatsResponse,
+)
 from app.services.admin_service import AdminService
+from app.services.market_data_service import MarketDataService
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
 
@@ -45,6 +52,44 @@ def execute_query(
     """Execute a read-only SQL query."""
     result = service.execute_query(q, limit=limit)
     return JSONResponse(content=result)
+
+
+@router.get("/etl-jobs", response_model=EtlJobStatesResponse)
+def get_etl_jobs(
+    _=Depends(require_scopes([SCOPE_ADMIN_READ])),
+    service: MarketDataService = Depends(get_market_data_service),
+) -> EtlJobStatesResponse:
+    """Return ETL job state for all registered jobs."""
+    return service.get_etl_job_states()
+
+
+@router.get("/engine-status", response_model=EngineStatusResponse)
+def get_engine_status(
+    _=Depends(require_scopes([SCOPE_ADMIN_READ])),
+    service: MarketDataService = Depends(get_market_data_service),
+) -> EngineStatusResponse:
+    """Return engine key-value status entries."""
+    return service.get_engine_status()
+
+
+@router.get("/worker-heartbeats", response_model=WorkerHeartbeatsResponse)
+def get_worker_heartbeats(
+    _=Depends(require_scopes([SCOPE_ADMIN_READ])),
+    service: MarketDataService = Depends(get_market_data_service),
+) -> WorkerHeartbeatsResponse:
+    """Return engine worker heartbeat records."""
+    return service.get_worker_heartbeats()
+
+
+@router.get("/price-ticks/{ticker}", response_model=PriceTicksResponse)
+def get_price_ticks(
+    ticker: str,
+    limit: int = Query(default=100, ge=1, le=1000),
+    _=Depends(require_scopes([SCOPE_ADMIN_READ])),
+    service: MarketDataService = Depends(get_market_data_service),
+) -> PriceTicksResponse:
+    """Return recent intraday price ticks for a ticker (admin only)."""
+    return service.get_price_ticks(ticker=ticker.upper(), limit=limit)
 
 
 @router.get("/dashboard", response_class=HTMLResponse)
