@@ -2,18 +2,41 @@
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Any, Protocol
 
 from app.domain.models import (
     AdminAuditEvent,
+    BalanceSheetQ,
+    CashFlowQ,
+    CompanyFundamentals,
+    CorporateAction,
+    Country,
+    Currency,
+    EngineStatusEntry,
+    EtlJobState,
+    Exchange,
     InternalJobReceipt,
+    Industry,
+    IncomeStatementQ,
     MarketNewsItem,
     PortfolioPosition,
     PortfolioValuation,
+    PriceDay,
+    PriceTick,
+    QualityQ,
+    ReturnsDay,
+    RiskDay,
+    Sector,
     SignalRecord,
+    TechnicalDay,
+    TickerDetail,
+    TickerNewsItem,
     TickerSnapshot,
     TickerSummary,
     TradeOrderResult,
+    TradingCalendarDay,
+    ValuationDay,
 )
 
 
@@ -85,3 +108,113 @@ class MarketDataRepository(Protocol):
 
     def get_service_client_summary(self) -> list[dict[str, Any]]:
         """Return summary of service clients from iam schema."""
+
+    # ── Reference / lookup ──────────────────────────────────────────────────
+
+    def get_countries(self) -> list[Country]:
+        """Return all countries."""
+
+    def get_currencies(self) -> list[Currency]:
+        """Return all currencies."""
+
+    def get_exchanges(self) -> list[Exchange]:
+        """Return all exchanges."""
+
+    def get_sectors(self) -> list[Sector]:
+        """Return all sectors."""
+
+    def get_industries(self, sector_id: int | None = None) -> list[Industry]:
+        """Return industries, optionally filtered by sector_id."""
+
+    def get_trading_calendar(
+        self, start: date | None = None, end: date | None = None, limit: int = 90
+    ) -> list[TradingCalendarDay]:
+        """Return trading calendar days."""
+
+    # ── Ticker detail ────────────────────────────────────────────────────────
+
+    def get_ticker_detail(self, ticker: str) -> TickerDetail | None:
+        """Return full ticker profile with identifiers."""
+
+    def get_price_history(
+        self,
+        ticker: str,
+        start: date | None = None,
+        end: date | None = None,
+        limit: int = 252,
+    ) -> list[PriceDay]:
+        """Return daily OHLCV price history."""
+
+    def get_corporate_actions(self, ticker: str, limit: int = 50) -> list[CorporateAction]:
+        """Return corporate actions for a ticker."""
+
+    def get_company_fundamentals(self, ticker: str) -> CompanyFundamentals | None:
+        """Return company fundamentals snapshot."""
+
+    # ── Financial statements ─────────────────────────────────────────────────
+
+    def get_income_statements(self, ticker: str, limit: int = 12) -> list[IncomeStatementQ]:
+        """Return quarterly income statements."""
+
+    def get_balance_sheets(self, ticker: str, limit: int = 12) -> list[BalanceSheetQ]:
+        """Return quarterly balance sheets."""
+
+    def get_cash_flows(self, ticker: str, limit: int = 12) -> list[CashFlowQ]:
+        """Return quarterly cash flow statements."""
+
+    def get_quality_metrics(self, ticker: str, limit: int = 12) -> list[QualityQ]:
+        """Return quarterly quality/ROIC metrics."""
+
+    # ── Indicator time-series ────────────────────────────────────────────────
+
+    def get_technical_indicators(
+        self,
+        ticker: str,
+        start: date | None = None,
+        end: date | None = None,
+        limit: int = 252,
+    ) -> list[TechnicalDay]:
+        """Return daily technical indicators."""
+
+    def get_risk_indicators(
+        self,
+        ticker: str,
+        start: date | None = None,
+        end: date | None = None,
+        limit: int = 252,
+    ) -> list[RiskDay]:
+        """Return daily risk metrics."""
+
+    def get_valuation_indicators(
+        self,
+        ticker: str,
+        start: date | None = None,
+        end: date | None = None,
+        limit: int = 252,
+    ) -> list[ValuationDay]:
+        """Return daily valuation metrics."""
+
+    def get_returns_snapshot(
+        self,
+        ticker: str,
+        start: date | None = None,
+        end: date | None = None,
+        limit: int = 252,
+    ) -> list[ReturnsDay]:
+        """Return daily returns snapshot."""
+
+    # ── News ─────────────────────────────────────────────────────────────────
+
+    def get_ticker_news(self, ticker: str, limit: int = 20) -> list[TickerNewsItem]:
+        """Return per-ticker news from the news table."""
+
+    # ── Admin-only ────────────────────────────────────────────────────────────
+
+    def get_etl_job_states(self) -> list[EtlJobState]:
+        """Return ETL job states."""
+
+    def get_engine_status(self) -> list[EngineStatusEntry]:
+        """Return engine_status key-value entries."""
+
+    def get_price_ticks(self, ticker: str, limit: int = 100) -> list[PriceTick]:
+        """Return recent price ticks for a ticker."""
