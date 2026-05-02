@@ -5,7 +5,7 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 HEALTH_URL="http://127.0.0.1:7000/health"
 HEALTH_RETRIES=15
 HEALTH_INTERVAL=4
-PLIST_NAME="com.theeyebeta.dataapi"
+SERVICE_NAME="theeyebeta-dataapi"
 
 log() { echo "[deploy] $(date '+%Y-%m-%d %H:%M:%S') $*"; }
 
@@ -19,7 +19,7 @@ log "Installing dependencies..."
 "$REPO_DIR/.venv/bin/pip" install -q -r "$REPO_DIR/requirements.txt"
 
 log "Restarting service..."
-launchctl kickstart -k "gui/$(id -u)/${PLIST_NAME}"
+sudo systemctl restart "$SERVICE_NAME"
 
 log "Waiting for health check at $HEALTH_URL..."
 for i in $(seq 1 $HEALTH_RETRIES); do
@@ -32,5 +32,5 @@ for i in $(seq 1 $HEALTH_RETRIES); do
 done
 
 log "ERROR: Service did not become healthy after $((HEALTH_RETRIES * HEALTH_INTERVAL))s."
-tail -50 "$HOME/Library/Logs/theeyebeta-dataapi/stderr.log" 2>/dev/null || true
+sudo journalctl -u "$SERVICE_NAME" --no-pager -n 50 2>/dev/null || true
 exit 1
