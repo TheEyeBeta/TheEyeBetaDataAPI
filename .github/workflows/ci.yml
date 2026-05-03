@@ -39,5 +39,26 @@ jobs:
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
 
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Resolve deploy repo
+        id: deploy-repo
+        run: |
+          repo_dir="$(systemctl show -p WorkingDirectory --value theeyebeta-dataapi 2>/dev/null || true)"
+
+          if [ -z "$repo_dir" ] && [ -n "${RUNNER_WORKSPACE:-}" ]; then
+            repo_dir="$(cd "$RUNNER_WORKSPACE/../.." && pwd)"
+          fi
+
+          if [ -z "$repo_dir" ] || [ ! -f "$repo_dir/scripts/deploy.sh" ]; then
+            echo "Could not resolve the production repo directory." >&2
+            exit 1
+          fi
+
+          echo "repo_dir=$repo_dir" >> "$GITHUB_OUTPUT"
+
       - name: Deploy to production
-        run: bash /home/user/TheEyeBetaDataAPI/scripts/deploy.sh
+        env:
+          DEPLOY_REPO_DIR: ${{ steps.deploy-repo.outputs.repo_dir }}
+        run: bash scripts/deploy.sh
