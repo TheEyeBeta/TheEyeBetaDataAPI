@@ -47,8 +47,15 @@ jobs:
         run: |
           repo_dir="$(systemctl show -p WorkingDirectory --value theeyebeta-dataapi 2>/dev/null || true)"
 
-          if [ -z "$repo_dir" ] && [ -n "${RUNNER_WORKSPACE:-}" ]; then
-            repo_dir="$(cd "$RUNNER_WORKSPACE/../.." && pwd)"
+          if [ -z "$repo_dir" ] && [ -n "${GITHUB_WORKSPACE:-}" ]; then
+            candidate="$(cd "$GITHUB_WORKSPACE/../../../.." && pwd)"
+            if [ -f "$candidate/scripts/deploy.sh" ] && [ -x "$candidate/.venv/bin/pip" ]; then
+              repo_dir="$candidate"
+            fi
+          fi
+
+          if [ -z "$repo_dir" ] && [ -n "${GITHUB_WORKSPACE:-}" ] && [ -x "$GITHUB_WORKSPACE/.venv/bin/pip" ]; then
+            repo_dir="$GITHUB_WORKSPACE"
           fi
 
           if [ -z "$repo_dir" ] || [ ! -f "$repo_dir/scripts/deploy.sh" ]; then
