@@ -32,20 +32,30 @@ Secure multi-client data access layer between private PostgreSQL and external/in
   - `trades:write`
   - `admin:*`
 
-## Capability route groups
+## API Reference
 
-- `GET /health`
-- `POST /api/v1/auth/service-token`
-- `GET /api/v1/market-data/quotes`
-- `GET /api/v1/symbols/search`
-- `GET /api/v1/analytics/snapshots/{ticker}`
-- `GET /api/v1/advisor/context` (alias: `GET /api/v1/context`)
-- `POST /api/v1/advisor/chat` (alias: `POST /api/v1/chat`)
-- `GET /api/v1/signals/latest`
-- `GET /api/v1/portfolio/state` (ownership-aware)
-- `POST /api/v1/trades/orders` (idempotency key required)
-- `GET /api/v1/admin/audit-events`
-- `POST /api/v1/internal/jobs/rebuild-indicators`
+See **[docs/API_REFERENCE.md](docs/API_REFERENCE.md)** for the full endpoint reference including parameters, request/response schemas, required scopes, and curl examples.
+
+### Capability route groups (summary)
+
+| Group | Scope | Endpoints |
+|---|---|---|
+| Health | — | `GET /health` |
+| Auth | — | `POST /api/v1/auth/service-token` |
+| Market Data | `market:read` | `GET /api/v1/market-data/quotes` |
+| Symbols | `symbols:read` | `GET /api/v1/symbols/search` |
+| Tickers | `market:read` / `analytics:read` | `GET /api/v1/tickers/{ticker}`, price-history, corporate-actions, fundamentals |
+| Financials | `analytics:read` | `GET /api/v1/financials/{ticker}/income\|balance\|cashflow\|quality` |
+| Indicators | `analytics:read` | `GET /api/v1/indicators/{ticker}/technical\|risk\|valuation\|returns` |
+| Analytics | `analytics:read` | `GET /api/v1/analytics/snapshots/{ticker}` |
+| Signals | `signals:read` | `GET /api/v1/signals/latest` |
+| News | `market:read` | `GET /api/v1/news/market`, `/news/ticker/{ticker}` |
+| Reference | `market:read` | `GET /api/v1/reference/countries\|currencies\|exchanges\|sectors\|industries\|calendar` |
+| Advisor | `advisor:read` | `GET /api/v1/advisor/context`, `POST /api/v1/advisor/chat` |
+| Portfolio | `portfolio:read` | `GET /api/v1/portfolio/state` (ownership-aware) |
+| Trades | `trades:write` | `POST /api/v1/trades/orders` (idempotency key required) |
+| Admin | `admin:read` | `GET /api/v1/admin/audit-events\|dashboard-data\|query\|etl-jobs\|engine-status\|worker-heartbeats\|price-ticks/{ticker}` |
+| Internal | `internal:jobs` | `POST /api/v1/internal/jobs/rebuild-indicators` |
 
 ## Production setup (Linux server — one time)
 
