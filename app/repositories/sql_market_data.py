@@ -604,14 +604,36 @@ class SQLMarketDataRepository(MarketDataRepository):
             return []
 
     def execute_readonly_query(self, query: str, limit: int = 100) -> list[dict[str, Any]]:
+        import re
+
         normalized = query.strip().rstrip(";").strip()
-        upper = normalized.upper()
-        if not upper.startswith("SELECT"):
+
+        # Reject embedded semicolons (multi-statement attacks).
+        if ";" in normalized:
+            raise ValidationAppError("Query must be a single statement")
+
+        # Strip inline comments before keyword checks to prevent comment-based bypasses.
+        stripped = re.sub(r"--[^\n]*", " ", normalized)
+        stripped = re.sub(r"/\*.*?\*/", " ", stripped, flags=re.DOTALL)
+        # Collapse whitespace so keyword checks work on canonical form.
+        canonical = re.sub(r"\s+", " ", stripped).strip().upper()
+
+        if not canonical.startswith("SELECT"):
             raise ValidationAppError("Only SELECT queries are allowed")
-        forbidden = {"INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "TRUNCATE", "CREATE", "GRANT", "REVOKE", "EXECUTE"}
+
+        # WITH blocks enable CTEs that can wrap any DDL/DML — block them entirely.
+        forbidden = {
+            "INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "TRUNCATE", "CREATE",
+            "GRANT", "REVOKE", "EXECUTE", "EXEC", "CALL", "COPY", "LOAD",
+            "IMPORT", "EXPORT", "WITH", "SET", "SHOW", "EXPLAIN", "ANALYZE",
+            "VACUUM", "REINDEX", "CLUSTER", "COMMENT", "NOTIFY", "LISTEN",
+            "UNLISTEN", "CHECKPOINT", "DO",
+        }
         for keyword in forbidden:
-            if keyword in upper:
+            # Match whole words only to avoid false positives (e.g. "NETWORK" containing "SET").
+            if re.search(rf"\b{re.escape(keyword)}\b", canonical):
                 raise ValidationAppError(f"Query contains forbidden keyword: {keyword}")
+
         try:
             limited_query = f"SELECT * FROM ({normalized}) AS _q LIMIT :_limit"
             rows = self._session.execute(text(limited_query), {"_limit": limit}).mappings().all()

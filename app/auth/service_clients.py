@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hmac
 import ipaddress
+import json
 import logging
 from dataclasses import dataclass
 
@@ -207,9 +208,7 @@ def _verify_service_client_secret_db(
             {
                 "client_uuid": client.client_uuid,
                 "actor_subject": f"service:{client.client_id}",
-                "event_payload": (
-                    '{"auth_mode":"database","client_ip":"%s"}' % (normalized_ip or "")
-                ),
+                "event_payload": json.dumps({"auth_mode": "database", "client_ip": normalized_ip or ""}),
             },
         )
         db_session.commit()

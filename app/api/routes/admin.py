@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query
+import logging
+
+from fastapi import APIRouter, Depends, Path, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse
+
+logger = logging.getLogger("dataapi.audit")
 
 from app.api.dependencies.services import get_admin_service, get_market_data_service
 from app.auth.dependencies import require_scopes
@@ -44,12 +48,20 @@ def get_dashboard_data(
 
 @router.get("/query")
 def execute_query(
+    request: Request,
     q: str = Query(min_length=1, max_length=2000),
     limit: int = Query(default=100, ge=1, le=1000),
     _=Depends(require_scopes([SCOPE_ADMIN_READ])),
     service: AdminService = Depends(get_admin_service),
 ) -> JSONResponse:
     """Execute a read-only SQL query."""
+    logger.warning(
+        "admin_query_execute auth_subject=%s query_len=%d limit=%d query=%r",
+        getattr(request.state, "auth_subject", "unknown"),
+        len(q),
+        limit,
+        q,
+    )
     result = service.execute_query(q, limit=limit)
     return JSONResponse(content=result)
 
@@ -83,7 +95,7 @@ def get_worker_heartbeats(
 
 @router.get("/price-ticks/{ticker}", response_model=PriceTicksResponse)
 def get_price_ticks(
-    ticker: str,
+    ticker: str = Path(pattern=r"^[A-Za-z0-9.\-]{1,10}$"),
     limit: int = Query(default=100, ge=1, le=1000),
     _=Depends(require_scopes([SCOPE_ADMIN_READ])),
     service: MarketDataService = Depends(get_market_data_service),
