@@ -1,5 +1,7 @@
 """FastAPI app entry point for TheEyeBetaDataAPI."""
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
@@ -30,10 +32,25 @@ from app.core.security_headers import SecurityHeadersMiddleware
 
 setup_logging()
 
+
+@asynccontextmanager
+async def lifespan(application: FastAPI):
+    from prometheus_fastapi_instrumentator import Instrumentator
+    Instrumentator(
+        # Don't record /metrics or /health scrapes — they'd skew latency histograms.
+        excluded_handlers=["/metrics", "/health"],
+        should_group_status_codes=False,
+    ).instrument(application).expose(application, include_in_schema=False)
+    yield
+    from app.db.session import engine
+    engine.dispose()
+
+
 app = FastAPI(
     title=settings.app_name,
     version=settings.app_version,
     description="Internet-exposed AI Data API with allowlisted database access.",
+    lifespan=lifespan,
 )
 
 app.add_middleware(RequestContextMiddleware)

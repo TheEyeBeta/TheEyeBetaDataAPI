@@ -103,10 +103,10 @@ class AdminService:
             "recent_events": recent_events,
         }
 
-    def execute_query(self, query: str, limit: int = 100) -> dict[str, Any]:
-        """Execute a read-only query and return results."""
-        rows = self._repository.execute_readonly_query(query, limit=limit)
-        return {"query": query, "row_count": len(rows), "rows": rows}
+    def execute_named_query(self, query_name: str, limit: int = 100) -> dict[str, Any]:
+        """Execute a curated named query and return results."""
+        rows = self._repository.execute_named_query(query_name, limit=limit)
+        return {"query_name": query_name, "row_count": len(rows), "rows": rows}
 
 
 def _mask_db_url(url: str) -> str:

@@ -100,6 +100,9 @@ class MarketDataRepository(Protocol):
     def execute_readonly_query(self, query: str, limit: int = 100) -> list[dict[str, Any]]:
         """Execute a read-only SQL query and return results."""
 
+    def execute_named_query(self, query_name: str, limit: int = 100) -> list[dict[str, Any]]:
+        """Execute a server-side curated named query and return results."""
+
     def get_database_version(self) -> str:
         """Return PostgreSQL version string."""
 
