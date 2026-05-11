@@ -40,7 +40,8 @@ _COMPILED = [re.compile(p, re.IGNORECASE | re.DOTALL) for p in _RAW_PATTERNS]
 
 
 def _normalize(text: str) -> str:
-    """Strip SQL-style comments and collapse whitespace for uniform matching."""
+    """Strip null bytes, SQL-style comments, and collapse whitespace for uniform matching."""
+    text = text.replace("\x00", "")
     text = re.sub(r"--[^\n]*", " ", text)
     text = re.sub(r"/\*.*?\*/", " ", text, flags=re.DOTALL)
     return re.sub(r"\s+", " ", text).strip()

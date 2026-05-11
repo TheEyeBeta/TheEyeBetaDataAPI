@@ -1,5 +1,7 @@
 """FastAPI app entry point for TheEyeBetaDataAPI."""
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
@@ -30,10 +32,21 @@ from app.core.security_headers import SecurityHeadersMiddleware
 
 setup_logging()
 
+
+@asynccontextmanager
+async def lifespan(application: FastAPI):
+    yield
+    # Graceful shutdown: release all DB connections so in-flight requests finish
+    # cleanly before the process exits.
+    from app.db.session import engine
+    engine.dispose()
+
+
 app = FastAPI(
     title=settings.app_name,
     version=settings.app_version,
     description="Internet-exposed AI Data API with allowlisted database access.",
+    lifespan=lifespan,
 )
 
 app.add_middleware(RequestContextMiddleware)

@@ -63,6 +63,54 @@ def _to_date(value: Any) -> date | None:
     return value if isinstance(value, date) else None
 
 
+# Server-side allowlist of parameterised admin queries.
+# Only :limit is accepted as a parameter; no user-supplied SQL ever reaches the DB.
+_CURATED_ADMIN_QUERIES: dict[str, str] = {
+    "all_tickers": (
+        "SELECT ticker, company_name, is_active FROM tickers ORDER BY ticker LIMIT :limit"
+    ),
+    "latest_prices": (
+        "SELECT t.ticker, ls.last_price, ls.price_change_pct, ls.rsi_14, ls.updated_at"
+        " FROM latest_snapshot ls"
+        " JOIN tickers t ON t.ticker_id = ls.ticker_id"
+        " ORDER BY ls.updated_at DESC LIMIT :limit"
+    ),
+    "latest_signals": (
+        "SELECT t.ticker, ls.latest_signal, ls.signal_confidence,"
+        " ls.signal_strategy, ls.signal_ts"
+        " FROM latest_snapshot ls"
+        " JOIN tickers t ON t.ticker_id = ls.ticker_id"
+        " WHERE ls.latest_signal IS NOT NULL"
+        " ORDER BY ls.signal_ts DESC LIMIT :limit"
+    ),
+    "recent_trades": (
+        "SELECT * FROM paper_trades ORDER BY created_at DESC LIMIT :limit"
+    ),
+    "portfolio": (
+        "SELECT * FROM portfolio_positions ORDER BY quantity DESC LIMIT :limit"
+    ),
+    "valuation": (
+        "SELECT * FROM portfolio_valuation ORDER BY valuation_date DESC LIMIT :limit"
+    ),
+    "command_log": (
+        "SELECT command_id, command_type, status, operator_id, created_at"
+        " FROM trask_command_log ORDER BY created_at DESC LIMIT :limit"
+    ),
+    "market_news": (
+        "SELECT * FROM market_news ORDER BY published_at DESC LIMIT :limit"
+    ),
+    "heartbeats": (
+        "SELECT * FROM engine_worker_heartbeats ORDER BY worker_name LIMIT :limit"
+    ),
+    "table_stats": (
+        "SELECT schemaname, relname AS tablename, n_live_tup AS row_count"
+        " FROM pg_stat_user_tables ORDER BY n_live_tup DESC LIMIT :limit"
+    ),
+}
+
+CURATED_QUERY_NAMES: frozenset[str] = frozenset(_CURATED_ADMIN_QUERIES)
+
+
 class SQLMarketDataRepository(MarketDataRepository):
     """SQL-backed market data repository with explicit mapping."""
 
@@ -643,6 +691,20 @@ class SQLMarketDataRepository(MarketDataRepository):
             ]
         except SQLAlchemyError as exc:
             logger.exception("execute_readonly_query failed")
+            raise DatabaseUnavailableError(f"Query failed: {exc}") from exc
+
+    def execute_named_query(self, query_name: str, limit: int = 100) -> list[dict[str, Any]]:
+        sql = _CURATED_ADMIN_QUERIES.get(query_name)
+        if sql is None:
+            raise ValidationAppError(f"Unknown query name: {query_name!r}")
+        try:
+            rows = self._session.execute(text(sql), {"limit": limit}).mappings().all()
+            return [
+                {k: (str(v) if v is not None else None) for k, v in dict(row).items()}
+                for row in rows
+            ]
+        except SQLAlchemyError as exc:
+            logger.exception("execute_named_query failed query_name=%s", query_name)
             raise DatabaseUnavailableError(f"Query failed: {exc}") from exc
 
     def get_database_version(self) -> str:

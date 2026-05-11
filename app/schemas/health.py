@@ -8,3 +8,4 @@ class HealthResponse(BaseModel):
 
     status: str
     database: bool
+    redis: bool | None = None

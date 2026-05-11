@@ -12,6 +12,8 @@ logger = logging.getLogger("dataapi.audit")
 from app.api.dependencies.services import get_admin_service, get_market_data_service
 from app.auth.dependencies import require_scopes
 from app.auth.scopes import SCOPE_ADMIN_READ
+from app.core.subject_rate_limit import require_admin_rate_limit
+from app.repositories.sql_market_data import CURATED_QUERY_NAMES
 from app.schemas.market import (
     AdminAuditEventsResponse,
     EngineStatusResponse,
@@ -46,24 +48,35 @@ def get_dashboard_data(
     return JSONResponse(content=data)
 
 
-@router.get("/query")
-def execute_query(
+@router.get("/named-query")
+def execute_named_query(
     request: Request,
-    q: str = Query(min_length=1, max_length=2000),
+    query_name: str = Query(min_length=1, max_length=80),
     limit: int = Query(default=100, ge=1, le=1000),
     _=Depends(require_scopes([SCOPE_ADMIN_READ])),
+    _rl=Depends(require_admin_rate_limit),
     service: AdminService = Depends(get_admin_service),
 ) -> JSONResponse:
-    """Execute a read-only SQL query."""
+    """Execute a server-side curated named query."""
+    if query_name not in CURATED_QUERY_NAMES:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=422, detail=f"Unknown query_name: {query_name!r}")
     logger.warning(
-        "admin_query_execute auth_subject=%s query_len=%d limit=%d query=%r",
+        "admin_named_query auth_subject=%s query_name=%s limit=%d",
         getattr(request.state, "auth_subject", "unknown"),
-        len(q),
+        query_name,
         limit,
-        q,
     )
-    result = service.execute_query(q, limit=limit)
+    result = service.execute_named_query(query_name, limit=limit)
     return JSONResponse(content=result)
+
+
+@router.get("/queries")
+def list_named_queries(
+    _=Depends(require_scopes([SCOPE_ADMIN_READ])),
+) -> JSONResponse:
+    """Return the list of available curated query names."""
+    return JSONResponse(content={"queries": sorted(CURATED_QUERY_NAMES)})
 
 
 @router.get("/etl-jobs", response_model=EtlJobStatesResponse)
@@ -398,7 +411,18 @@ _DASHBOARD_HTML = """\
       <span class="tag">Read-only</span>
     </div>
     <div class="card-body">
-      <textarea id="query-input" placeholder="SELECT * FROM tickers WHERE is_active = true LIMIT 10" spellcheck="false"></textarea>
+      <select id="query-name" style="width:100%;padding:8px 10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:13px;margin-bottom:8px">
+        <option value="all_tickers">All Tickers</option>
+        <option value="latest_prices">Latest Prices</option>
+        <option value="latest_signals">Latest Signals</option>
+        <option value="recent_trades">Recent Trades</option>
+        <option value="portfolio">Portfolio Positions</option>
+        <option value="valuation">Portfolio Valuation</option>
+        <option value="command_log">Command Log</option>
+        <option value="market_news">Market News</option>
+        <option value="heartbeats">Worker Heartbeats</option>
+        <option value="table_stats">Table Stats</option>
+      </select>
       <div class="query-controls">
         <button class="btn btn-primary" onclick="runQuery()">Execute</button>
         <select id="query-limit">
@@ -410,22 +434,6 @@ _DASHBOARD_HTML = """\
         <span id="query-status" style="color:var(--text-muted);font-size:12px;font-weight:500"></span>
       </div>
       <div id="query-results"></div>
-    </div>
-  </div>
-
-  <!-- Preset Queries -->
-  <div class="card full-width" style="margin-top:16px">
-    <div class="card-header"><div class="card-header-left"><div class="card-header-icon" style="background:rgba(139,92,246,0.1);color:#8b5cf6">&#9733;</div>Quick Queries</div></div>
-    <div class="card-body quick-queries">
-      <button class="btn btn-secondary" onclick="preset('SELECT ticker, company_name, is_active FROM tickers ORDER BY ticker LIMIT 50')">All Tickers</button>
-      <button class="btn btn-secondary" onclick="preset('SELECT t.ticker, ls.last_price, ls.price_change_pct, ls.rsi_14, ls.updated_at FROM latest_snapshot ls JOIN tickers t ON t.ticker_id = ls.ticker_id ORDER BY ls.updated_at DESC LIMIT 25')">Latest Prices</button>
-      <button class="btn btn-secondary" onclick="preset('SELECT t.ticker, ls.latest_signal, ls.signal_confidence, ls.signal_strategy, ls.signal_ts FROM latest_snapshot ls JOIN tickers t ON t.ticker_id = ls.ticker_id WHERE ls.latest_signal IS NOT NULL ORDER BY ls.signal_ts DESC LIMIT 25')">Latest Signals</button>
-      <button class="btn btn-secondary" onclick="preset('SELECT * FROM paper_trades ORDER BY created_at DESC LIMIT 20')">Recent Trades</button>
-      <button class="btn btn-secondary" onclick="preset('SELECT * FROM portfolio_positions ORDER BY quantity DESC LIMIT 20')">Portfolio</button>
-      <button class="btn btn-secondary" onclick="preset('SELECT * FROM portfolio_valuation ORDER BY valuation_date DESC LIMIT 5')">Valuation</button>
-      <button class="btn btn-secondary" onclick="preset('SELECT command_id, command_type, status, operator_id, created_at FROM trask_command_log ORDER BY created_at DESC LIMIT 20')">Command Log</button>
-      <button class="btn btn-secondary" onclick="preset('SELECT * FROM market_news ORDER BY published_at DESC LIMIT 15')">Market News</button>
-      <button class="btn btn-secondary" onclick="preset('SELECT * FROM engine_worker_heartbeats ORDER BY worker_name')">Heartbeats</button>
     </div>
   </div>
 </div>
@@ -609,22 +617,16 @@ function renderAuditEvents(events) {
   document.getElementById('audit-events').innerHTML = html;
 }
 
-function preset(sql) {
-  document.getElementById('query-input').value = sql;
-  document.getElementById('query-input').scrollIntoView({ behavior: 'smooth', block: 'center' });
-  runQuery();
-}
-
 async function runQuery() {
   if (!TOKEN) { setAuthStatus('Authenticate first', 'red'); return; }
-  const q = document.getElementById('query-input').value.trim();
-  if (!q) return;
+  const queryName = document.getElementById('query-name').value;
+  if (!queryName) return;
   const limit = document.getElementById('query-limit').value;
   const statusEl = document.getElementById('query-status');
   statusEl.innerHTML = '<span class="loading-spinner"></span>Executing...';
   try {
     const t0 = performance.now();
-    const data = await apiFetch('/api/v1/admin/query?limit=' + limit + '&q=' + encodeURIComponent(q));
+    const data = await apiFetch('/api/v1/admin/named-query?query_name=' + encodeURIComponent(queryName) + '&limit=' + limit);
     const ms = Math.round(performance.now() - t0);
     statusEl.textContent = data.row_count + ' rows in ' + ms + 'ms';
     renderQueryResults(data.rows);
@@ -667,7 +669,7 @@ function escapeHtml(str) {
 document.addEventListener('keydown', function(e) {
   if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
     const active = document.activeElement;
-    if (active && active.id === 'query-input') { e.preventDefault(); runQuery(); }
+    if (active && (active.id === 'query-name' || active.id === 'query-limit')) { e.preventDefault(); runQuery(); }
   }
 });
 </script>
