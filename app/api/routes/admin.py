@@ -468,7 +468,19 @@ async function apiFetch(path) {
   });
   if (!resp.ok) {
     const body = await resp.text();
-    throw new Error(`${resp.status}: ${body}`);
+    let message = body;
+    let code = '';
+    try {
+      const parsed = JSON.parse(body);
+      message = parsed.error?.message || body;
+      code = parsed.error?.code || '';
+    } catch {
+      // Keep the raw response body when the server returns non-JSON content.
+    }
+    const err = new Error(`${resp.status}: ${message}`);
+    err.status = resp.status;
+    err.code = code;
+    throw err;
   }
   return resp.json();
 }
@@ -632,7 +644,12 @@ async function runQuery() {
     renderQueryResults(data.rows);
   } catch (e) {
     statusEl.textContent = '';
-    document.getElementById('query-results').innerHTML = '<div class="error-msg">' + escapeHtml(e.message) + '</div>';
+    const resultsEl = document.getElementById('query-results');
+    if (e.code === 'DATABASE_UNAVAILABLE') {
+      resultsEl.innerHTML = '';
+      return;
+    }
+    resultsEl.innerHTML = '<div class="error-msg">' + escapeHtml(e.message) + '</div>';
   }
 }
 
