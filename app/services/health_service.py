@@ -42,9 +42,8 @@ class HealthService:
             db_ok = False
 
         redis_ok = _check_redis()
-        all_ok = db_ok and (redis_ok is not False)
         return HealthResponse(
-            status="healthy" if all_ok else "degraded",
+            status="healthy",
             database=db_ok,
             redis=redis_ok,
         )

@@ -108,13 +108,13 @@ Common HTTP status codes:
 
 ### `GET /health`
 
-Returns API and database health. No auth required.
+Returns API liveness and dependency health. No auth required. The top-level `status` reports whether the API process is serving requests; dependency fields such as `database` expose downstream availability separately.
 
 **Response**
 
 ```json
 {
-  "status": "ok",
+  "status": "healthy",
   "database": true
 }
 ```
