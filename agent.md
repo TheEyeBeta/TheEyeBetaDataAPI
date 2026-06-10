@@ -1,6 +1,31 @@
 # TheEyeBetaDataAPI — Agent Instructions
 
-## Starting the App
+## Starting / Stopping the API (the simple way)
+
+`server.sh` at the repo root is the one script you need.
+**It runs in the background — no editor, no terminal, no Cursor needs to stay open.**
+
+```bash
+./server.sh          # toggle: start if stopped, stop if running
+./server.sh start    # start on 0.0.0.0:7000 (background, survives terminal close)
+./server.sh stop     # stop
+./server.sh restart  # stop + start
+./server.sh status   # is it running?
+./server.sh logs     # tail the live log (server.log)
+```
+
+The process runs via `nohup` and writes its PID to `.server.pid`.
+Close your terminal, close Cursor, disconnect SSH — the API keeps running.
+
+To confirm it's healthy after starting:
+
+```bash
+curl http://127.0.0.1:7000/health
+```
+
+---
+
+## Starting All Native Services (API + tunnel + other engines)
 
 When asked to start all native services (Data API :7000 + TheEyeBetaLocal engine/API/Trask + tunnel), use:
 
@@ -24,26 +49,17 @@ sudo bash scripts/fix_tunnel.sh          # permanent systemd fix (required once 
 
 Full guide: `docs/TUNNEL_RUNBOOK.md`. Canonical config: `deploy/cloudflared-config.yml`.
 
-When asked to start or restart only the Data API, use:
+## systemd (if installed as a Linux service)
+
+If the systemd service has been installed (`sudo bash scripts/install_service.sh`), use:
 
 ```bash
-bash scripts/run_production.sh
+sudo systemctl restart theeyebeta-dataapi   # restart
+sudo systemctl status  theeyebeta-dataapi   # check
+sudo journalctl -u theeyebeta-dataapi -f    # tail logs
 ```
 
-- The API binds to `127.0.0.1:7000`
-- Confirm healthy: `curl -sf http://127.0.0.1:7000/health`
-
-If the systemd service is installed (production Linux server), restart it with:
-
-```bash
-sudo systemctl restart theeyebeta-dataapi
-```
-
-To tail logs on the Linux server:
-
-```bash
-sudo journalctl -u theeyebeta-dataapi -f
-```
+The systemd service survives reboots automatically. Use `server.sh` if systemd is not set up.
 
 ## One-Time Setup on Linux Server
 
