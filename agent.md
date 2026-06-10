@@ -2,7 +2,29 @@
 
 ## Starting the App
 
-When asked to start, run, or restart the app, always use:
+When asked to start all native services (Data API :7000 + TheEyeBetaLocal engine/API/Trask + tunnel), use:
+
+```bash
+bash scripts/start_all_native.sh
+```
+
+This also runs `scripts/sync_tunnel.sh` and starts the watchdog. **No Docker** for app ports.
+
+## Cloudflare Tunnel (TheEyeBeta2025)
+
+Public URLs:
+
+- `https://dataapi.theeyebeta.store` → `127.0.0.1:7000` (this repo)
+- `https://api.theeyebeta.store` → `127.0.0.1:8000` (TheEyeBetaLocal)
+
+```bash
+bash scripts/sync_tunnel.sh              # no sudo — DNS + remote ingress + fallback connector
+sudo bash scripts/fix_tunnel.sh          # permanent systemd fix (required once if dataapi 502)
+```
+
+Full guide: `docs/TUNNEL_RUNBOOK.md`. Canonical config: `deploy/cloudflared-config.yml`.
+
+When asked to start or restart only the Data API, use:
 
 ```bash
 bash scripts/run_production.sh

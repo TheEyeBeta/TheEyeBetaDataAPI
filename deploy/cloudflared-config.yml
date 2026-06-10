@@ -1,0 +1,18 @@
+# Canonical Cloudflare Tunnel ingress for TheEyeBeta2025 (native, no Docker).
+# Install to /etc/cloudflared/config.yml via: sudo bash scripts/fix_tunnel.sh
+tunnel: 2e9c4dad-0800-4ae1-a9a7-3fb6e169d8b7
+credentials-file: /home/the-eye-beta/.cloudflared/2e9c4dad-0800-4ae1-a9a7-3fb6e169d8b7.json
+
+ingress:
+  - hostname: api.theeyebeta.store
+    service: http://127.0.0.1:8000
+
+  - hostname: dataapi.theeyebeta.store
+    service: http://127.0.0.1:7000
+
+  - hostname: admin.theeyebeta.store
+    service: http://127.0.0.1:7200
+    originRequest:
+      connectTimeout: 30s
+
+  - service: http_status:404

@@ -147,30 +147,39 @@ curl -s "http://127.0.0.1:7000/api/v1/advisor/context?ticker=AAPL" \
   -H "Authorization: Bearer ${TOKEN}"
 ```
 
-Remote smoke test:
+Start all native services + tunnel (no Docker):
 
 ```bash
-API_BASE_URL="https://api.theeyebeta.store" \
+bash scripts/start_all_native.sh
+```
+
+Remote smoke test (via Cloudflare Tunnel):
+
+```bash
+API_BASE_URL="https://dataapi.theeyebeta.store" \
 SERVICE_CLIENT_ID="vi-app" \
 SERVICE_CLIENT_SECRET="<SERVICE_SECRET>" \
 bash scripts/verify_remote_access.sh
 ```
 
-## Cloudflare Tunnel origin
+## Cloudflare Tunnel
 
-Use:
+See **[docs/TUNNEL_RUNBOOK.md](docs/TUNNEL_RUNBOOK.md)** for the full TheEyeBeta2025 tunnel guide.
 
-- `http://127.0.0.1:7000`
+| Public hostname | Local origin | Service |
+|---|---|---|
+| `dataapi.theeyebeta.store` | `http://127.0.0.1:7000` | TheEyeBetaDataAPI |
+| `api.theeyebeta.store` | `http://127.0.0.1:8000` | TheEyeBetaLocal Main API |
+| `admin.theeyebeta.store` | `http://127.0.0.1:7200` | TheEyeBetaProd admin |
 
-Example ingress:
+Canonical config: [`deploy/cloudflared-config.yml`](deploy/cloudflared-config.yml)
 
-```yaml
-ingress:
-  - hostname: api.theeyebeta.store
-    service: http://127.0.0.1:7000
-  - hostname: dataapi.theeyebeta.store
-    service: http://127.0.0.1:7000
-  - service: http_status:404
+```bash
+# Sync DNS + remote ingress (no sudo)
+bash scripts/sync_tunnel.sh
+
+# Permanent systemd fix (sudo once — required if dataapi returns 502)
+sudo bash scripts/fix_tunnel.sh
 ```
 
 ## Optional production hardening toggles

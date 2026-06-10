@@ -1,13 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Remote smoke test from laptop/anywhere
-# Usage:
-#   API_BASE_URL=https://api.yourdomain.com SERVICE_CLIENT_ID=vi-app SERVICE_CLIENT_SECRET=... bash scripts/verify_remote_access.sh
+# Remote smoke test through Cloudflare Tunnel.
+# Data API (quotes, advisor, auth):
+#   API_BASE_URL=https://dataapi.theeyebeta.store SERVICE_CLIENT_ID=vi-app SERVICE_CLIENT_SECRET=... bash scripts/verify_remote_access.sh
+# Main API (TheEyeBetaLocal):
+#   API_BASE_URL=https://api.theeyebeta.store ...
 
-: "${API_BASE_URL:?Set API_BASE_URL, e.g. https://api.yourdomain.com}"
+API_BASE_URL="${API_BASE_URL:-https://dataapi.theeyebeta.store}"
 : "${SERVICE_CLIENT_ID:?Set SERVICE_CLIENT_ID}"
 : "${SERVICE_CLIENT_SECRET:?Set SERVICE_CLIENT_SECRET}"
+
+echo "Target: ${API_BASE_URL}"
+echo
 
 echo "[1/4] Health check"
 curl -fsS "${API_BASE_URL}/health" | sed 's/^/  /'
@@ -29,14 +34,12 @@ if [[ -z "${TOKEN}" ]]; then
   exit 1
 fi
 
-echo "[3/4] Advisor context with Bearer token"
-curl -fsS "${API_BASE_URL}/api/v1/context?ticker=AAPL" \
+echo "[3/4] Market quotes with Bearer token"
+curl -fsS "${API_BASE_URL}/api/v1/market-data/quotes?symbols=AAPL" \
   -H "Authorization: Bearer ${TOKEN}" | head -c 500
 echo -e "\n"
 
-echo "[4/4] Chat endpoint with Bearer token"
-curl -fsS -X POST "${API_BASE_URL}/api/v1/advisor/chat" \
-  -H "Authorization: Bearer ${TOKEN}" \
-  -H "Content-Type: application/json" \
-  -d '{"question":"Give me a quick trusted snapshot for AAPL","ticker":"AAPL"}' | head -c 500
+echo "[4/4] Advisor context with Bearer token"
+curl -fsS "${API_BASE_URL}/api/v1/advisor/context?ticker=AAPL" \
+  -H "Authorization: Bearer ${TOKEN}" | head -c 500
 echo -e "\n\nRemote verification complete."
