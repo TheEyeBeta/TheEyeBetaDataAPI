@@ -22,3 +22,12 @@ Thumbs.db
 frontend/node_modules/
 frontend/dist/
 frontend/public/client.js
+
+# Runtime / local deployment artifacts
+server.log
+.server.pid
+logs/
+.runtime-logs/
+
+# Self-hosted GitHub Actions runner
+actions-runner/

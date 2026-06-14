@@ -34,13 +34,7 @@ setup_logging()
 
 
 @asynccontextmanager
-async def lifespan(application: FastAPI):
-    from prometheus_fastapi_instrumentator import Instrumentator
-    Instrumentator(
-        # Don't record /metrics or /health scrapes — they'd skew latency histograms.
-        excluded_handlers=["/metrics", "/health"],
-        should_group_status_codes=False,
-    ).instrument(application).expose(application, include_in_schema=False)
+async def lifespan(_application: FastAPI):
     yield
     from app.db.session import engine
     engine.dispose()
@@ -52,6 +46,13 @@ app = FastAPI(
     description="Internet-exposed AI Data API with allowlisted database access.",
     lifespan=lifespan,
 )
+
+from prometheus_fastapi_instrumentator import Instrumentator
+
+Instrumentator(
+    excluded_handlers=["/metrics", "/health"],
+    should_group_status_codes=False,
+).instrument(app).expose(app, include_in_schema=False)
 
 app.add_middleware(RequestContextMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
