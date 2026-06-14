@@ -8,6 +8,8 @@ from app.auth.models import Principal, PrincipalType
 from app.auth.service_clients import get_service_client, validate_mtls_subject
 from app.auth.scopes import has_required_scopes
 from app.auth.tokens import decode_access_token
+from app.auth.user_api_keys import is_user_api_key, verify_user_api_key
+from app.core.client_ip import get_client_ip
 from app.core.config import settings
 from app.domain.errors import AuthenticationError, AuthorizationError
 
@@ -46,6 +48,13 @@ def get_principal(request: Request, authorization: str | None = Header(default=N
     token = authorization.split(" ", 1)[1].strip()
     if not token:
         raise AuthenticationError("Missing bearer token")
+
+    if is_user_api_key(token):
+        principal = verify_user_api_key(token, client_ip=get_client_ip(request))
+        request.state.auth_type = "user-api-key"
+        request.state.auth_subject = principal.subject
+        return principal
+
     principal = decode_access_token(token)
     request.state.auth_type = principal.principal_type.value
     request.state.auth_subject = principal.subject
