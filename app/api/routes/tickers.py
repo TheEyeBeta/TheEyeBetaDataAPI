@@ -5,7 +5,6 @@ from __future__ import annotations
 from datetime import date
 
 from fastapi import APIRouter, Depends, Query
-from fastapi.responses import JSONResponse
 
 from app.api.dependencies.services import get_market_data_service
 from app.auth.dependencies import require_scopes

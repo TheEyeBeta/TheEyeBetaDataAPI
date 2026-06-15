@@ -7,8 +7,6 @@ import logging
 from fastapi import APIRouter, Depends, Path, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
-logger = logging.getLogger("dataapi.audit")
-
 from app.api.dependencies.services import get_admin_service, get_market_data_service
 from app.auth.dependencies import require_scopes
 from app.auth.scopes import SCOPE_ADMIN_READ
@@ -23,6 +21,8 @@ from app.schemas.market import (
 )
 from app.services.admin_service import AdminService
 from app.services.market_data_service import MarketDataService
+
+logger = logging.getLogger("dataapi.audit")
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
 

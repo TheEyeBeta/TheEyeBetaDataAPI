@@ -19,6 +19,10 @@ from app.domain.models import (
     InternalJobReceipt,
     Industry,
     IncomeStatementQ,
+    MacroLatestPoint,
+    MacroObservation,
+    MacroRegimeSnapshot,
+    MacroSeriesStat,
     MarketNewsItem,
     PortfolioPosition,
     PortfolioValuation,
@@ -221,3 +225,28 @@ class MarketDataRepository(Protocol):
 
     def get_price_ticks(self, ticker: str, limit: int = 100) -> list[PriceTick]:
         """Return recent price ticks for a ticker."""
+
+
+class MacroRepository(Protocol):
+    """Read-oriented macro indicator / regime repository contract."""
+
+    def get_series_stats(self) -> list[MacroSeriesStat]:
+        """Return per-series stats (latest value/date, count, source) for all series."""
+
+    def series_exists(self, code: str) -> bool:
+        """Return True when the series code has observations."""
+
+    def get_observations(
+        self,
+        code: str,
+        start: date | None = None,
+        end: date | None = None,
+        limit: int = 500,
+    ) -> list[MacroObservation]:
+        """Return observations for one series, most recent first."""
+
+    def get_latest_points(self, codes: list[str] | None = None) -> list[MacroLatestPoint]:
+        """Return the most recent observation for every series (optionally filtered)."""
+
+    def get_latest_regime(self) -> MacroRegimeSnapshot | None:
+        """Return the latest macro regime snapshot, or None when empty."""

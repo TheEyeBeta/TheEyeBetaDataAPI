@@ -7,7 +7,6 @@ import time
 from collections import defaultdict, deque
 
 from fastapi import Request
-from starlette.responses import JSONResponse
 
 logger = logging.getLogger("dataapi.ratelimit")
 

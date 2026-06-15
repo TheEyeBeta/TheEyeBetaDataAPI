@@ -439,3 +439,91 @@ class PriceTick:
     close: float | None
     volume: float | None
     source: str | None
+
+
+# ── Macro ─────────────────────────────────────────────────────────────────────
+
+@dataclass(frozen=True)
+class MacroSeriesInfo:
+    """Static metadata for a macro series (vendored from the macro registry)."""
+
+    code: str
+    name: str
+    category: str
+    frequency: str
+    units: str
+    seasonal_adj: bool
+    source: str
+
+
+@dataclass(frozen=True)
+class MacroSeriesStat:
+    """DB-derived stats for a single macro series."""
+
+    code: str
+    latest_value: float | None
+    latest_date: date | None
+    observation_count: int
+    source: str | None
+
+
+@dataclass(frozen=True)
+class MacroObservation:
+    """A single macro observation point."""
+
+    date: date
+    value: float | None
+
+
+@dataclass(frozen=True)
+class MacroLatestPoint:
+    """Most recent observation for a macro series."""
+
+    code: str
+    date: date | None
+    value: float | None
+    source: str | None
+
+
+@dataclass(frozen=True)
+class MacroRegimeSnapshot:
+    """Latest macro regime snapshot with all derived columns."""
+
+    as_of_date: date | None
+    fed_funds_rate: float | None
+    yield_10y: float | None
+    yield_2y: float | None
+    spread_2s10s: float | None
+    vix: float | None
+    dxy: float | None
+    hy_oas_bps: float | None
+    rate_environment: str | None
+    yield_curve: str | None
+    credit_environment: str | None
+    volatility_regime: str | None
+    dollar_regime: str | None
+    style_tilts: Any | None
+    data_source: str | None
+    computed_at: datetime | None
+    sp500_level: float | None
+    sp500_change_pct: float | None
+    nasdaq_level: float | None
+    nasdaq_change_pct: float | None
+    cpi: float | None
+    gdp: float | None
+    fed_funds_change_30d: float | None
+    yield_10y_change_30d: float | None
+    yield_2y_change_30d: float | None
+    spread_2s10s_change_30d: float | None
+    dxy_change_5d: float | None
+    dxy_change_30d: float | None
+    vix_change_5d: float | None
+    vix_pct_rank_1y: float | None
+    hy_oas_change_30d: float | None
+    sp500_change_5d_pct: float | None
+    sp500_change_30d_pct: float | None
+    nasdaq_change_5d_pct: float | None
+    nasdaq_change_30d_pct: float | None
+    cpi_surprise: float | None
+    cpi_yoy_pct: float | None
+    gdp_qoq_pct: float | None

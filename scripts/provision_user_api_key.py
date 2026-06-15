@@ -21,7 +21,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from app.db.session import get_db_session
+from app.db.session import get_db_session  # noqa: E402
 
 DEFAULT_SCOPES = ["market:read", "symbols:read"]
 

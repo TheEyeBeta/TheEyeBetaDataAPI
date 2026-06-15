@@ -256,7 +256,7 @@ class SQLMarketDataRepository(MarketDataRepository):
                     FROM latest_snapshot ls
                     JOIN tickers t ON t.ticker_id = ls.ticker_id
                     WHERE ls.latest_signal IS NOT NULL
-                      {f'AND UPPER(t.ticker) = UPPER(:ticker)' if ticker else ''}
+                      {'AND UPPER(t.ticker) = UPPER(:ticker)' if ticker else ''}
                     ORDER BY ls.signal_ts DESC NULLS LAST, t.ticker ASC
                     LIMIT :limit
                     """

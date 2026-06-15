@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from prometheus_fastapi_instrumentator import Instrumentator
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.api.error_handlers import register_error_handlers
@@ -16,6 +17,7 @@ from app.api.routes.financials import router as financials_router
 from app.api.routes.health import router as health_router
 from app.api.routes.indicators import router as indicators_router
 from app.api.routes.internal import router as internal_router
+from app.api.routes.macro import router as macro_router
 from app.api.routes.market_data import router as market_data_router
 from app.api.routes.news import router as news_router
 from app.api.routes.portfolio import router as portfolio_router
@@ -46,8 +48,6 @@ app = FastAPI(
     description="Internet-exposed AI Data API with allowlisted database access.",
     lifespan=lifespan,
 )
-
-from prometheus_fastapi_instrumentator import Instrumentator
 
 Instrumentator(
     excluded_handlers=["/metrics", "/health"],
@@ -82,6 +82,8 @@ app.include_router(reference_router)
 app.include_router(tickers_router)
 app.include_router(financials_router)
 app.include_router(indicators_router)
+app.include_router(macro_router, prefix="/v1/macro")
+app.include_router(macro_router, prefix="/api/v1/macro", include_in_schema=False)
 app.include_router(news_router)
 app.include_router(admin_router)
 app.include_router(internal_router)

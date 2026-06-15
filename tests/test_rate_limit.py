@@ -6,8 +6,6 @@ import time
 from collections import deque
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from app.core.rate_limit import RateLimitMiddleware
 
 
@@ -91,10 +89,6 @@ def test_redis_reconnect_attempted_after_cooldown(monkeypatch) -> None:
             return True
 
     class _FakeRedisLib:
-        @staticmethod
-        def Redis():
-            return None
-
         class Redis:
             @staticmethod
             def from_url(*a, **kw):
@@ -111,7 +105,6 @@ def test_redis_reconnect_attempted_after_cooldown(monkeypatch) -> None:
 
 
 def test_limit_response_has_correct_shape() -> None:
-    from starlette.datastructures import Headers
     from starlette.requests import Request
 
     scope = {
