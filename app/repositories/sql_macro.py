@@ -21,8 +21,12 @@ from app.domain.models import (
 logger = logging.getLogger("dataapi.repository")
 
 _INDICATORS = "theeyebeta.macro_indicators"
-_REGIME_SCHEMA = "theeyebeta"
-_REGIME_TABLES = ("macro_regime_snapshots", "macro_regimes")
+# (schema, table) regime sources, newest-wins across them. The active snapshot
+# table lives in theeyebeta; the legacy macro_regimes table lives in public.
+_REGIME_TABLES = (
+    ("theeyebeta", "macro_regime_snapshots"),
+    ("public", "macro_regimes"),
+)
 
 _REGIME_COLUMNS = (
     "as_of_date",
@@ -216,8 +220,8 @@ class SQLMacroRepository:
         try:
             snapshots = [
                 snapshot
-                for table in _REGIME_TABLES
-                if (snapshot := self._get_latest_regime_from_table(table)) is not None
+                for schema, table in _REGIME_TABLES
+                if (snapshot := self._get_latest_regime_from_table(schema, table)) is not None
             ]
             if not snapshots:
                 return None
@@ -226,8 +230,8 @@ class SQLMacroRepository:
             logger.exception("get_latest_regime failed")
             raise DatabaseUnavailableError("Unable to fetch macro regime") from exc
 
-    def _get_latest_regime_from_table(self, table: str) -> MacroRegimeSnapshot | None:
-        columns = self._get_regime_columns(table)
+    def _get_latest_regime_from_table(self, schema: str, table: str) -> MacroRegimeSnapshot | None:
+        columns = self._get_regime_columns(schema, table)
         selected_columns = [column for column in _REGIME_COLUMNS if column in columns]
         if "as_of_date" not in selected_columns:
             return None
@@ -241,7 +245,7 @@ class SQLMacroRepository:
             text(
                 f"""
                 SELECT {column_sql}
-                FROM {_REGIME_SCHEMA}.{table}
+                FROM {schema}.{table}
                 ORDER BY {order_sql}
                 LIMIT 1
                 """  # noqa: S608
@@ -256,7 +260,7 @@ class SQLMacroRepository:
             values[col] = _to_float(raw) if col in _REGIME_NUMERIC else raw
         return MacroRegimeSnapshot(**values)
 
-    def _get_regime_columns(self, table: str) -> set[str]:
+    def _get_regime_columns(self, schema: str, table: str) -> set[str]:
         rows = self._session.execute(
             text(
                 """
@@ -266,6 +270,6 @@ class SQLMacroRepository:
                   AND table_name = :table
                 """
             ),
-            {"schema": _REGIME_SCHEMA, "table": table},
+            {"schema": schema, "table": table},
         ).all()
         return {str(row[0]) for row in rows}
