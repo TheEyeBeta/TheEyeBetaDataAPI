@@ -39,7 +39,7 @@ def test_health_returns_healthy_when_db_ok() -> None:
     client = TestClient(app)
     response = client.get("/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "healthy", "database": True}
+    assert response.json() == {"status": "healthy", "database": True, "redis": None}
     app.dependency_overrides.clear()
 
 
@@ -48,7 +48,7 @@ def test_health_keeps_api_healthy_when_db_unhealthy() -> None:
     client = TestClient(app)
     response = client.get("/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "healthy", "database": False}
+    assert response.json() == {"status": "healthy", "database": False, "redis": None}
     app.dependency_overrides.clear()
 
 
