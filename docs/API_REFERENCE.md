@@ -4,6 +4,10 @@ Base URL: `https://api.theeyebeta.store` (or `http://127.0.0.1:7000` locally)
 
 All versioned endpoints are under `/api/v1/`.
 
+Runtime data endpoints read from the canonical `theeyebeta` schema only. The
+legacy `public` schema is deprecated for this API; any missing mirror data is a
+data-sync issue, not a runtime fallback path. This API is read-only.
+
 ---
 
 ## Table of Contents
@@ -24,9 +28,8 @@ All versioned endpoints are under `/api/v1/`.
 14. [Reference Data](#reference-data)
 15. [Advisor](#advisor)
 16. [Portfolio](#portfolio)
-17. [Trades](#trades)
+17. [Generic Data Tables](#generic-data-tables)
 18. [Admin](#admin)
-19. [Internal](#internal)
 
 ---
 
@@ -73,11 +76,8 @@ Each endpoint requires one of the following scopes. A token is only granted the 
 | `signals:read` | Trading signals |
 | `advisor:read` | AI advisor chat and context |
 | `portfolio:read` | Portfolio state |
-| `trades:write` | Place paper trade orders |
-| `admin:read` | Admin dashboard, audit events, ETL status, query console |
-| `admin:write` | Admin write operations |
+| `admin:read` | Admin dashboard, audit events, ETL status, named queries, all table reads |
 | `admin:*` | All admin scopes (wildcard) |
-| `internal:jobs` | Internal background job triggers |
 
 ---
 
@@ -164,7 +164,7 @@ Exchange service client credentials for a scoped Bearer token.
 curl -s -X POST "https://api.theeyebeta.store/api/v1/auth/service-token" \
   -u "my-client-id:my-client-secret" \
   -H "Content-Type: application/json" \
-  -d '{"requested_scopes":["market:read","signals:read","portfolio:read","trades:write"]}'
+  -d '{"requested_scopes":["market:read","signals:read","portfolio:read"]}'
 ```
 
 ---
@@ -1211,66 +1211,41 @@ curl -s "https://api.theeyebeta.store/api/v1/portfolio/state?owner_subject=user%
 
 ---
 
-## Trades
+## Generic Data Tables
 
-### `POST /api/v1/trades/orders`
+Read-only metadata and row access for canonical `theeyebeta` tables.
 
-Place a paper trade order.
+**Scope:** any basic read scope for basic market-data tables; `admin:read` for all `theeyebeta` tables/views.
 
-**Scope:** `trades:write`
+### `GET /api/v1/data/tables`
 
-**Required headers**
+List readable tables for the authenticated principal.
 
-| Header | Description |
-|---|---|
-| `Idempotency-Key` | A unique client-generated UUID or string. Re-submitting with the same key within the expiry window returns the original response without creating a duplicate order. |
-| `Content-Type` | `application/json` |
+### `GET /api/v1/data/tables/{table}/columns`
 
-**Request body**
+Return column names and types for one readable table.
 
-```json
-{
-  "symbol": "AAPL",
-  "side": "buy",
-  "quantity": 10,
-  "limit_price": 190.00
-}
-```
+### `GET /api/v1/data/tables/{table}/rows`
 
-| Field | Type | Required | Constraints | Description |
+Return paged rows from one readable table.
+
+| Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `symbol` | string | Yes | 1–16 chars | Ticker symbol |
-| `side` | string | Yes | `"buy"` or `"sell"` | Trade direction |
-| `quantity` | float | Yes | > 0 | Number of shares |
-| `limit_price` | float | No | > 0 | Optional limit price; if omitted executes at market |
-
-**Response**
-
-```json
-{
-  "status": "accepted",
-  "order_ref": "ord_8f3a2c1b",
-  "idempotency_key": "my-key-001",
-  "symbol": "AAPL",
-  "side": "buy",
-  "quantity": 10,
-  "executed_price": 189.42,
-  "total_cost": 1894.20,
-  "accepted_at": "2025-05-03T14:35:00Z",
-  "idempotent_replay": false
-}
-```
-
-> When `idempotent_replay` is `true`, the response is a replay of an earlier accepted order — no new order was created.
+| `limit` | integer | No | `100` | 1–1000 rows |
+| `offset` | integer | No | `0` | Page offset |
+| `order_by` | string | No | inferred | Column to sort by |
+| `order_dir` | string | No | `desc` | `asc` or `desc` |
+| `filter` | string[] | No | — | Repeatable `column:op:value`; ops: `eq`, `ne`, `lt`, `lte`, `gt`, `gte`, `like`, `ilike` |
+| `symbol` | string | No | — | Resolves through `instrument_id`, legacy `ticker_id`, or a `symbol` column |
+| `date_column` | string | No | inferred | Date/timestamp column for `start`/`end` |
+| `start` | date | No | — | Inclusive lower date bound |
+| `end` | date | No | — | Inclusive upper date bound |
 
 **Example**
 
 ```bash
-curl -s -X POST "https://api.theeyebeta.store/api/v1/trades/orders" \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -H "Idempotency-Key: $(uuidgen)" \
-  -d '{"symbol":"AAPL","side":"buy","quantity":10}'
+curl -s "https://api.theeyebeta.store/api/v1/data/tables/latest_snapshots/rows?symbol=AAPL&limit=5" \
+  -H "Authorization: Bearer $TOKEN"
 ```
 
 ---
@@ -1353,9 +1328,9 @@ curl -s "https://api.theeyebeta.store/api/v1/admin/audit-events?limit=20&categor
 
 ---
 
-### `GET /api/v1/admin/query`
+### `GET /api/v1/admin/named-query`
 
-Execute a read-only SQL query against the database.
+Execute a server-curated read-only query against `theeyebeta`.
 
 **Scope:** `admin:read`
 
@@ -1363,18 +1338,20 @@ Execute a read-only SQL query against the database.
 
 | Parameter | Type | Required | Default | Constraints | Description |
 |---|---|---|---|---|---|
-| `q` | string | Yes | — | 1–2000 chars | SQL query (SELECT only; write statements will be rejected) |
+| `query_name` | string | Yes | — | 1–80 chars | Curated query name |
 | `limit` | integer | No | `100` | 1–1000 | Max rows returned |
+
+Available query names: `all_tickers`, `latest_prices`, `latest_signals`,
+`orders`, `portfolio`, `command_log`, `market_news`, `heartbeats`, `table_stats`.
 
 **Response**
 
 ```json
 {
+  "query_name": "all_tickers",
   "row_count": 3,
   "rows": [
-    { "ticker": "AAPL", "company_name": "Apple Inc.", "is_active": true },
-    { "ticker": "MSFT", "company_name": "Microsoft Corporation", "is_active": true },
-    { "ticker": "TSLA", "company_name": "Tesla Inc.", "is_active": true }
+    { "ticker": "AAPL", "company_name": "AAPL", "is_active": true }
   ]
 }
 ```
@@ -1382,7 +1359,7 @@ Execute a read-only SQL query against the database.
 **Example**
 
 ```bash
-curl -s "https://api.theeyebeta.store/api/v1/admin/query?q=SELECT+ticker,company_name+FROM+tickers+WHERE+is_active%3Dtrue+LIMIT+5" \
+curl -s "https://api.theeyebeta.store/api/v1/admin/named-query?query_name=all_tickers&limit=5" \
   -H "Authorization: Bearer $ADMIN_TOKEN"
 ```
 
@@ -1504,57 +1481,4 @@ Recent intraday price tick records for a ticker (raw ingestion data).
 ```bash
 curl -s "https://api.theeyebeta.store/api/v1/admin/price-ticks/AAPL?limit=10" \
   -H "Authorization: Bearer $ADMIN_TOKEN"
-```
-
----
-
-## Internal
-
-### `POST /api/v1/internal/jobs/rebuild-indicators`
-
-Enqueues a rebuild-indicators background job in the command log.
-
-**Scope:** `internal:jobs`
-
-**Request body** (optional)
-
-```json
-{
-  "ticker": "AAPL",
-  "force": false,
-  "reason": "Manual rebuild after data correction"
-}
-```
-
-| Field | Type | Required | Constraints | Description |
-|---|---|---|---|---|
-| `ticker` | string | No | max 16 chars | Limit rebuild to a single ticker. Omit to rebuild all. |
-| `force` | boolean | No | — | Force rebuild even if indicators are current (default `false`) |
-| `reason` | string | No | max 300 chars | Operator note logged with the command |
-
-**Response**
-
-```json
-{
-  "status": "queued",
-  "command_id": "cmd_f4a91b23",
-  "command_type": "rebuild_indicators",
-  "created_at": "2025-05-03T14:40:00Z"
-}
-```
-
-**Example**
-
-```bash
-# Rebuild all indicators
-curl -s -X POST "https://api.theeyebeta.store/api/v1/internal/jobs/rebuild-indicators" \
-  -H "Authorization: Bearer $INTERNAL_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{}'
-
-# Rebuild single ticker
-curl -s -X POST "https://api.theeyebeta.store/api/v1/internal/jobs/rebuild-indicators" \
-  -H "Authorization: Bearer $INTERNAL_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"ticker":"AAPL","reason":"Corrected source data"}'
 ```

@@ -76,15 +76,11 @@ curl -s "http://127.0.0.1:7000/api/v1/advisor/context?ticker=AAPL" \
   -H "Authorization: Bearer ${TOKEN}"
 ```
 
-Trade write check (trade-engine service):
+Read-only table API check:
 
 ```bash
-TRADE_TOKEN=<trade_engine_token_with_trades_write>
-curl -s -X POST "http://127.0.0.1:7000/api/v1/trades/orders" \
-  -H "Authorization: Bearer ${TRADE_TOKEN}" \
-  -H "Idempotency-Key: idem-1" \
-  -H "Content-Type: application/json" \
-  -d '{"symbol":"AAPL","side":"buy","quantity":1}'
+curl -s "http://127.0.0.1:7000/api/v1/data/tables/latest_snapshots/rows?symbol=AAPL&limit=1" \
+  -H "Authorization: Bearer ${TOKEN}"
 ```
 
 Remote smoke:

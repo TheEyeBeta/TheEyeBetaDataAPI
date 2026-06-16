@@ -2,9 +2,9 @@
 
 from fastapi.testclient import TestClient
 
-from app.api.dependencies.services import get_admin_service, get_market_data_service, get_trades_service
+from app.api.dependencies.services import get_admin_service, get_market_data_service
 from app.main import app
-from app.schemas.market import AdminAuditEventResponse, AdminAuditEventsResponse, MarketQuotesResponse, PlaceOrderResponse
+from app.schemas.market import AdminAuditEventResponse, AdminAuditEventsResponse, MarketQuotesResponse
 
 
 class _FakeMarketDataService:
@@ -20,22 +20,6 @@ class _FakeMarketDataService:
                 )
                 for symbol in symbols
             ]
-        )
-
-
-class _FakeTradesService:
-    def place_order(self, **kwargs) -> PlaceOrderResponse:  # noqa: ANN003
-        return PlaceOrderResponse(
-            status="accepted",
-            order_ref="paper-trade-1",
-            idempotency_key=str(kwargs["idempotency_key"]),
-            symbol=str(kwargs["request"].symbol).upper(),
-            side=str(kwargs["request"].side).lower(),
-            quantity=float(kwargs["request"].quantity),
-            executed_price=100.0,
-            total_cost=100.0 * float(kwargs["request"].quantity),
-            accepted_at=None,
-            idempotent_replay=False,
         )
 
 
@@ -67,7 +51,6 @@ def _issue_service_token(client: TestClient, username: str, password: str, scope
 
 def test_vi_service_can_read_market_but_cannot_write_trades() -> None:
     app.dependency_overrides[get_market_data_service] = lambda: _FakeMarketDataService()
-    app.dependency_overrides[get_trades_service] = lambda: _FakeTradesService()
     client = TestClient(app)
     token = _issue_service_token(client, "vi-app", "vi-app-secret-which-is-24chars!!", ["market:read"])
 
@@ -86,18 +69,17 @@ def test_vi_service_can_read_market_but_cannot_write_trades() -> None:
         },
         json={"symbol": "AAPL", "side": "buy", "quantity": 1},
     )
-    assert trade_response.status_code == 403
+    assert trade_response.status_code == 404
     app.dependency_overrides.clear()
 
 
-def test_trade_engine_can_write_trades_with_idempotency() -> None:
-    app.dependency_overrides[get_trades_service] = lambda: _FakeTradesService()
+def test_trade_engine_write_route_is_not_part_of_data_api() -> None:
     client = TestClient(app)
     token = _issue_service_token(
         client,
         "trade-engine",
         "trade-engine-secret-which-is-24chars",
-        ["trades:write"],
+        ["portfolio:read"],
     )
     trade_response = client.post(
         "/api/v1/trades/orders",
@@ -107,9 +89,7 @@ def test_trade_engine_can_write_trades_with_idempotency() -> None:
         },
         json={"symbol": "AAPL", "side": "buy", "quantity": 2},
     )
-    assert trade_response.status_code == 200
-    assert trade_response.json()["status"] == "accepted"
-    app.dependency_overrides.clear()
+    assert trade_response.status_code == 404
 
 
 def test_admin_wildcard_scope_can_access_admin_read_route() -> None:

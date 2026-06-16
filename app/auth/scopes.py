@@ -11,12 +11,8 @@ SCOPE_ANALYTICS_READ = "analytics:read"
 SCOPE_ADVISOR_READ = "advisor:read"
 SCOPE_SIGNALS_READ = "signals:read"
 SCOPE_PORTFOLIO_READ = "portfolio:read"
-SCOPE_TRADES_WRITE = "trades:write"
-SCOPE_TRADES_READ = "trades:read"
 SCOPE_ADMIN_ALL = "admin:*"
 SCOPE_ADMIN_READ = "admin:read"
-SCOPE_ADMIN_WRITE = "admin:write"
-SCOPE_INTERNAL_JOBS = "internal:jobs"
 
 
 def _scope_matches(granted: str, required: str) -> bool:

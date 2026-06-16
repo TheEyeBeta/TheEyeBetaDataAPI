@@ -27,6 +27,49 @@ export type HealthResponse = {
   database: boolean;
 };
 
+export type DataTableInfo = {
+  name: string;
+  table_type: string;
+  row_count_estimate: number | null;
+  basic_access: boolean;
+};
+
+export type DataTablesResponse = {
+  tables: DataTableInfo[];
+};
+
+export type DataColumnInfo = {
+  name: string;
+  data_type: string;
+  nullable: boolean;
+  ordinal_position: number;
+};
+
+export type DataColumnsResponse = {
+  table: string;
+  columns: DataColumnInfo[];
+};
+
+export type DataRowsResponse<T extends Record<string, unknown> = Record<string, unknown>> = {
+  table: string;
+  limit: number;
+  offset: number;
+  row_count: number;
+  rows: T[];
+};
+
+export type DataRowsQuery = {
+  limit?: number;
+  offset?: number;
+  order_by?: string;
+  order_dir?: "asc" | "desc";
+  filter?: string | string[];
+  symbol?: string;
+  date_column?: string;
+  start?: string;
+  end?: string;
+};
+
 export type RootResponse = {
   name: string;
   version: string;
@@ -42,7 +85,7 @@ export type DataApiClientConfig = {
   fetchImpl?: FetchLike;
 };
 
-type QueryValue = string | number | boolean | null | undefined;
+type QueryValue = string | number | boolean | null | undefined | Array<string | number | boolean>;
 type QueryParams = Record<string, QueryValue>;
 
 export class DataApiClient {
@@ -101,6 +144,25 @@ export class DataApiClient {
     return this.request<ChatResponse>("POST", "/api/v1/chat", { body: payload });
   }
 
+  async listTables(): Promise<DataTablesResponse> {
+    return this.request<DataTablesResponse>("GET", "/api/v1/data/tables");
+  }
+
+  async getTableColumns(table: string): Promise<DataColumnsResponse> {
+    return this.request<DataColumnsResponse>("GET", `/api/v1/data/tables/${encodeURIComponent(table)}/columns`);
+  }
+
+  async queryTableRows<T extends Record<string, unknown> = Record<string, unknown>>(
+    table: string,
+    query: DataRowsQuery = {},
+  ): Promise<DataRowsResponse<T>> {
+    return this.request<DataRowsResponse<T>>(
+      "GET",
+      `/api/v1/data/tables/${encodeURIComponent(table)}/rows`,
+      { query },
+    );
+  }
+
   async get<T>(path: string, query?: QueryParams): Promise<T> {
     return this.request<T>("GET", path, { query });
   }
@@ -153,7 +215,13 @@ export class DataApiClient {
       if (value === undefined || value === null) {
         continue;
       }
-      url.searchParams.set(key, String(value));
+      if (Array.isArray(value)) {
+        for (const item of value) {
+          url.searchParams.append(key, String(item));
+        }
+      } else {
+        url.searchParams.set(key, String(value));
+      }
     }
     return url.toString();
   }

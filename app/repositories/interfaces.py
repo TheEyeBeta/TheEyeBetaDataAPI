@@ -16,7 +16,6 @@ from app.domain.models import (
     EngineStatusEntry,
     EtlJobState,
     Exchange,
-    InternalJobReceipt,
     Industry,
     IncomeStatementQ,
     MacroLatestPoint,
@@ -38,7 +37,6 @@ from app.domain.models import (
     TickerNewsItem,
     TickerSnapshot,
     TickerSummary,
-    TradeOrderResult,
     TradingCalendarDay,
     ValuationDay,
 )
@@ -71,29 +69,8 @@ class MarketDataRepository(Protocol):
     def get_portfolio_positions(self, limit: int = 100) -> list[PortfolioPosition]:
         """Return portfolio positions with latest pricing."""
 
-    def create_trade_order(
-        self,
-        *,
-        operator_subject: str,
-        symbol: str,
-        side: str,
-        quantity: float,
-        idempotency_key: str,
-        limit_price: float | None = None,
-    ) -> TradeOrderResult:
-        """Create trade order with idempotency semantics."""
-
     def get_admin_audit_events(self, limit: int = 50, category: str | None = None) -> list[AdminAuditEvent]:
         """Return admin audit events."""
-
-    def enqueue_internal_job(
-        self,
-        *,
-        operator_subject: str,
-        command_type: str,
-        params: dict[str, Any],
-    ) -> InternalJobReceipt:
-        """Record and return internal job command."""
 
     def get_table_row_counts(self) -> list[dict[str, Any]]:
         """Return row counts for key tables."""

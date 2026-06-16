@@ -1,6 +1,9 @@
 # TheEyeBetaDataAPI
 
 Secure multi-client data access layer between private PostgreSQL and external/internal consumers.
+Runtime data is served from the canonical `theeyebeta` schema only; the legacy `public`
+schema is deprecated for this API. This service is read-only. Editing/order/job systems
+live outside this repo.
 
 ## Architecture model
 
@@ -29,7 +32,7 @@ Secure multi-client data access layer between private PostgreSQL and external/in
 - Scope examples:
   - `market:read`
   - `analytics:read`
-  - `trades:write`
+  - `admin:read`
   - `admin:*`
 
 ## API Reference
@@ -53,9 +56,8 @@ See **[docs/API_REFERENCE.md](docs/API_REFERENCE.md)** for the full endpoint ref
 | Reference | `market:read` | `GET /api/v1/reference/countries\|currencies\|exchanges\|sectors\|industries\|calendar` |
 | Advisor | `advisor:read` | `GET /api/v1/advisor/context`, `POST /api/v1/advisor/chat` |
 | Portfolio | `portfolio:read` | `GET /api/v1/portfolio/state` (ownership-aware) |
-| Trades | `trades:write` | `POST /api/v1/trades/orders` (idempotency key required) |
-| Admin | `admin:read` | `GET /api/v1/admin/audit-events\|dashboard-data\|query\|etl-jobs\|engine-status\|worker-heartbeats\|price-ticks/{ticker}` |
-| Internal | `internal:jobs` | `POST /api/v1/internal/jobs/rebuild-indicators` |
+| Generic Data | read scope / `admin:read` | `GET /api/v1/data/tables`, columns, rows |
+| Admin | `admin:read` | `GET /api/v1/admin/audit-events\|dashboard-data\|named-query\|etl-jobs\|engine-status\|worker-heartbeats\|price-ticks/{ticker}` |
 
 ## Production setup (Linux server — one time)
 

@@ -37,6 +37,13 @@ const client = createDataApiPlugin({
 const health = await client.health();
 const context = await client.context({ ticker: "AAPL" });
 const answer = await client.chat({ question: "Give me a quick AAPL snapshot", ticker: "AAPL" });
+
+const tables = await client.listTables();
+const columns = await client.getTableColumns("latest_snapshots");
+const rows = await client.queryTableRows("latest_snapshots", {
+  symbol: "AAPL",
+  limit: 5,
+});
 ```
 
 ## Build

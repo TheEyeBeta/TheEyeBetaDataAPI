@@ -96,22 +96,6 @@ class PortfolioValuation:
 
 
 @dataclass(frozen=True)
-class TradeOrderResult:
-    """Result of a trade order command."""
-
-    order_ref: str
-    status: str
-    idempotency_key: str
-    symbol: str
-    side: str
-    quantity: float
-    executed_price: float
-    total_cost: float
-    accepted_at: datetime | None
-    idempotent_replay: bool
-
-
-@dataclass(frozen=True)
 class AdminAuditEvent:
     """Admin-visible audit event."""
 
@@ -124,16 +108,6 @@ class AdminAuditEvent:
     target_id: str | None
     severity: str | None
     payload: dict[str, Any] | None
-    created_at: datetime | None
-
-
-@dataclass(frozen=True)
-class InternalJobReceipt:
-    """Internal job enqueue receipt."""
-
-    command_id: str
-    status: str
-    command_type: str
     created_at: datetime | None
 
 

@@ -21,12 +21,7 @@ from app.domain.models import (
 logger = logging.getLogger("dataapi.repository")
 
 _INDICATORS = "theeyebeta.macro_indicators"
-# (schema, table) regime sources, newest-wins across them. The active snapshot
-# table lives in theeyebeta; the legacy macro_regimes table lives in public.
-_REGIME_TABLES = (
-    ("theeyebeta", "macro_regime_snapshots"),
-    ("public", "macro_regimes"),
-)
+_REGIME_TABLES = (("theeyebeta", "macro_regime_snapshots"),)
 
 _REGIME_COLUMNS = (
     "as_of_date",

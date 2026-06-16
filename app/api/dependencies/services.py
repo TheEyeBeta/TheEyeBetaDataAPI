@@ -9,17 +9,17 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db_session
 from app.repositories.interfaces import MacroRepository, MarketDataRepository
+from app.repositories.sql_data import SQLReadOnlyDataRepository
 from app.repositories.sql_macro import SQLMacroRepository
 from app.repositories.sql_market_data import SQLMarketDataRepository
 from app.services.admin_service import AdminService
 from app.services.advisor_service import AdvisorService
+from app.services.data_service import DataService
 from app.services.health_service import HealthService
-from app.services.internal_service import InternalService
 from app.services.macro_service import MacroService
 from app.services.market_data_service import MarketDataService
 from app.services.portfolio_service import PortfolioService
 from app.services.signals_service import SignalsService
-from app.services.trades_service import TradesService
 
 
 def get_session() -> Iterator[Session]:
@@ -39,6 +39,11 @@ def get_market_data_repository(session: Session = Depends(get_session)) -> Marke
 def get_macro_repository(session: Session = Depends(get_session)) -> MacroRepository:
     """Provide request-scoped macro repository."""
     return SQLMacroRepository(session)
+
+
+def get_readonly_data_repository(session: Session = Depends(get_session)) -> SQLReadOnlyDataRepository:
+    """Provide request-scoped read-only data repository."""
+    return SQLReadOnlyDataRepository(session)
 
 
 def get_health_service(repository: MarketDataRepository = Depends(get_market_data_repository)) -> HealthService:
@@ -66,21 +71,16 @@ def get_portfolio_service(repository: MarketDataRepository = Depends(get_market_
     return PortfolioService(repository=repository)
 
 
-def get_trades_service(repository: MarketDataRepository = Depends(get_market_data_repository)) -> TradesService:
-    """Provide trades service."""
-    return TradesService(repository=repository)
-
-
 def get_admin_service(repository: MarketDataRepository = Depends(get_market_data_repository)) -> AdminService:
     """Provide admin service."""
     return AdminService(repository=repository)
 
 
-def get_internal_service(repository: MarketDataRepository = Depends(get_market_data_repository)) -> InternalService:
-    """Provide internal service."""
-    return InternalService(repository=repository)
-
-
 def get_macro_service(repository: MacroRepository = Depends(get_macro_repository)) -> MacroService:
     """Provide macro service."""
     return MacroService(repository=repository)
+
+
+def get_data_service(repository: SQLReadOnlyDataRepository = Depends(get_readonly_data_repository)) -> DataService:
+    """Provide generic read-only data service."""
+    return DataService(repository=repository)

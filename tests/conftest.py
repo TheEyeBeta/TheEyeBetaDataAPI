@@ -4,8 +4,8 @@ import os
 
 
 # Ensure required settings exist before app modules import `settings = Settings()`.
-os.environ.setdefault("ENVIRONMENT", "development")
-os.environ.setdefault("DEBUG", "false")
+os.environ["ENVIRONMENT"] = "development"
+os.environ["DEBUG"] = "false"
 os.environ.setdefault(
     "DATABASE_URL",
     "postgresql+psycopg://readonly_user:change_me@127.0.0.1:5432/theeyebeta",
@@ -20,9 +20,9 @@ os.environ.setdefault("SERVICE_TOKEN_EXPIRES_MINUTES", "60")
 os.environ.setdefault("SERVICE_CLIENT_AUTH_MODE", "environment")
 os.environ.setdefault(
     "SERVICE_CLIENTS_JSON",
-    '{"trade-engine":{"secret":"trade-engine-secret-which-is-24chars","scopes":["trades:write","portfolio:read","internal:jobs"]},'
+    '{"trade-engine":{"secret":"trade-engine-secret-which-is-24chars","scopes":["portfolio:read"]},'
     '"vi-app":{"secret":"vi-app-secret-which-is-24chars!!","scopes":["market:read","symbols:read","analytics:read","advisor:read","signals:read"]},'
-    '"admin-tool":{"secret":"admin-tool-secret-which-is-24chars","scopes":["admin:*","internal:jobs"]}}',
+    '"admin-tool":{"secret":"admin-tool-secret-which-is-24chars","scopes":["admin:*"]}}',
 )
 os.environ.setdefault("RATE_LIMIT_PER_MINUTE", "120")
 os.environ.setdefault("OPENAI_API_KEY", "")

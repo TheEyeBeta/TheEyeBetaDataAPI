@@ -1,4 +1,4 @@
-"""Tests for the admin read-only SQL query validator."""
+"""Tests for the admin curated query behavior."""
 
 import pytest
 
@@ -31,26 +31,9 @@ def _repo() -> SQLMarketDataRepository:
     return SQLMarketDataRepository(_FakeSession())
 
 
-# ---------- Valid queries ----------
-
 @pytest.mark.parametrize("query", [
-    "SELECT * FROM tickers",
-    "SELECT ticker, last_price FROM tickers WHERE is_active = true",
-    "SELECT COUNT(*) FROM tickers",
-    "  SELECT * FROM tickers  ",          # leading/trailing whitespace
-    "SELECT * FROM tickers;",             # trailing semicolon stripped
-    "SELECT ticker FROM tickers -- comment at end",
-    "SELECT /* inline comment */ ticker FROM tickers",
-])
-def test_valid_select_queries_are_accepted(query: str) -> None:
-    repo = _repo()
-    result = repo.execute_readonly_query(query, limit=10)
-    assert isinstance(result, list)
-
-
-# ---------- Non-SELECT statements ----------
-
-@pytest.mark.parametrize("query", [
+    "SELECT * FROM theeyebeta.instruments",
+    "SELECT COUNT(*) FROM theeyebeta.instruments",
     "INSERT INTO tickers VALUES (1)",
     "UPDATE tickers SET is_active = false",
     "DELETE FROM tickers",
@@ -61,45 +44,10 @@ def test_valid_select_queries_are_accepted(query: str) -> None:
     "GRANT ALL ON tickers TO PUBLIC",
     "REVOKE SELECT ON tickers FROM user",
 ])
-def test_non_select_statements_are_rejected(query: str) -> None:
+def test_arbitrary_sql_queries_are_disabled(query: str) -> None:
     repo = _repo()
-    with pytest.raises(ValidationAppError):
+    with pytest.raises(ValidationAppError, match="Arbitrary SQL is disabled"):
         repo.execute_readonly_query(query, limit=10)
-
-
-# ---------- CTE and dangerous keyword bypasses ----------
-
-@pytest.mark.parametrize("query", [
-    "WITH x AS (SELECT 1) SELECT * FROM x",
-    "SELECT 1; DROP TABLE tickers",       # embedded semicolon
-    "SELECT 1; SELECT 2",                 # embedded semicolon (multi-statement)
-    "SELECT * FROM tickers WHERE 1=1; --",  # embedded semicolon
-])
-def test_cte_and_semicolon_attacks_are_rejected(query: str) -> None:
-    repo = _repo()
-    with pytest.raises(ValidationAppError):
-        repo.execute_readonly_query(query, limit=10)
-
-
-# ---------- Comment-based keyword obfuscation ----------
-
-@pytest.mark.parametrize("query", [
-    "SELECT * FROM tickers WHERE 1=1 -- DROP TABLE tickers",  # DROP is in a comment — safe
-])
-def test_keywords_in_comments_are_stripped_and_safe(query: str) -> None:
-    """Keywords that appear only inside comments must not block the query."""
-    repo = _repo()
-    result = repo.execute_readonly_query(query, limit=10)
-    assert isinstance(result, list)
-
-
-@pytest.mark.parametrize("query", [
-    "SELECT /* DROP TABLE tickers */ ticker FROM tickers",
-])
-def test_keywords_in_block_comments_are_stripped_and_safe(query: str) -> None:
-    repo = _repo()
-    result = repo.execute_readonly_query(query, limit=10)
-    assert isinstance(result, list)
 
 
 # ---------- Named query allowlist ----------
@@ -108,9 +56,8 @@ def test_keywords_in_block_comments_are_stripped_and_safe(query: str) -> None:
     "all_tickers",
     "latest_prices",
     "latest_signals",
-    "recent_trades",
+    "orders",
     "portfolio",
-    "valuation",
     "command_log",
     "market_news",
     "heartbeats",

@@ -82,30 +82,6 @@ class PortfolioStateResponse(BaseModel):
     positions: list[PortfolioPositionResponse]
 
 
-class PlaceOrderRequest(BaseModel):
-    """Trade order request contract."""
-
-    symbol: str = Field(min_length=1, max_length=16)
-    side: str = Field(pattern="^(buy|sell)$")
-    quantity: float = Field(gt=0)
-    limit_price: float | None = Field(default=None, gt=0)
-
-
-class PlaceOrderResponse(BaseModel):
-    """Trade order acceptance response."""
-
-    status: str
-    order_ref: str
-    idempotency_key: str
-    symbol: str
-    side: str
-    quantity: float
-    executed_price: float
-    total_cost: float
-    accepted_at: datetime | None = None
-    idempotent_replay: bool = False
-
-
 class GenericStatusResponse(BaseModel):
     """Generic status response."""
 
@@ -545,20 +521,3 @@ class WorkerHeartbeatResponse(BaseModel):
 
 class WorkerHeartbeatsResponse(BaseModel):
     workers: list[WorkerHeartbeatResponse]
-
-
-class InternalRebuildRequest(BaseModel):
-    """Internal rebuild command request."""
-
-    ticker: str | None = Field(default=None, max_length=16)
-    force: bool = False
-    reason: str | None = Field(default=None, max_length=300)
-
-
-class InternalJobResponse(BaseModel):
-    """Internal job command response."""
-
-    status: str
-    command_id: str
-    command_type: str
-    created_at: datetime | None = None

@@ -7,20 +7,10 @@ from datetime import UTC, datetime, timedelta
 import jwt
 from fastapi.testclient import TestClient
 
-from app.api.dependencies.services import get_internal_service, get_portfolio_service
+from app.api.dependencies.services import get_portfolio_service
 from app.core.config import settings
 from app.main import app
-from app.schemas.market import InternalJobResponse, PortfolioStateResponse
-
-
-class _FakeInternalService:
-    def enqueue_rebuild(self, **kwargs) -> InternalJobResponse:  # noqa: ANN003
-        return InternalJobResponse(
-            status="queued",
-            command_id="cmd-1",
-            command_type="rebuild_indicators",
-            created_at=None,
-        )
+from app.schemas.market import PortfolioStateResponse
 
 
 class _FakePortfolioService:
@@ -51,24 +41,14 @@ def _issue_service_token(client: TestClient, username: str, password: str, scope
     return response.json()["access_token"]
 
 
-def test_internal_job_requires_internal_jobs_scope() -> None:
-    app.dependency_overrides[get_internal_service] = lambda: _FakeInternalService()
+def test_internal_job_route_is_not_part_of_readonly_data_api() -> None:
     client = TestClient(app)
-    no_scope_token = _make_user_token(scopes=["advisor:read"])
-    forbidden = client.post(
-        "/api/v1/internal/jobs/rebuild-indicators",
-        headers={"Authorization": f"Bearer {no_scope_token}"},
-    )
-    assert forbidden.status_code == 403
-
-    allowed_token = _make_user_token(scopes=["internal:jobs"])
-    allowed = client.post(
+    allowed_token = _make_user_token(scopes=["market:read"])
+    response = client.post(
         "/api/v1/internal/jobs/rebuild-indicators",
         headers={"Authorization": f"Bearer {allowed_token}"},
     )
-    assert allowed.status_code == 200
-    assert allowed.json()["status"] == "queued"
-    app.dependency_overrides.clear()
+    assert response.status_code == 404
 
 
 def test_portfolio_enforces_user_ownership() -> None:

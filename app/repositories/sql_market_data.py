@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import json
 import logging
-import uuid
 from datetime import date, datetime
 from typing import Any
 
@@ -26,7 +24,6 @@ from app.domain.models import (
     Exchange,
     Industry,
     IncomeStatementQ,
-    InternalJobReceipt,
     MarketNewsItem,
     PortfolioPosition,
     PortfolioValuation,
@@ -42,7 +39,6 @@ from app.domain.models import (
     TickerNewsItem,
     TickerSnapshot,
     TickerSummary,
-    TradeOrderResult,
     TradingCalendarDay,
     ValuationDay,
 )
@@ -63,48 +59,49 @@ def _to_date(value: Any) -> date | None:
     return value if isinstance(value, date) else None
 
 
-# Server-side allowlist of parameterised admin queries.
-# Only :limit is accepted as a parameter; no user-supplied SQL ever reaches the DB.
+# Server-side allowlist of parameterised admin queries over the canonical
+# theeyebeta schema. Only :limit is accepted as a parameter.
 _CURATED_ADMIN_QUERIES: dict[str, str] = {
     "all_tickers": (
-        "SELECT ticker, company_name, is_active FROM tickers ORDER BY ticker LIMIT :limit"
+        "SELECT symbol AS ticker,"
+        " COALESCE(metadata->>'company_name', metadata->>'name', symbol) AS company_name,"
+        " active AS is_active"
+        " FROM theeyebeta.instruments ORDER BY symbol LIMIT :limit"
     ),
     "latest_prices": (
-        "SELECT t.ticker, ls.last_price, ls.price_change_pct, ls.rsi_14, ls.updated_at"
-        " FROM latest_snapshot ls"
-        " JOIN tickers t ON t.ticker_id = ls.ticker_id"
+        "SELECT i.symbol AS ticker, ls.last_price, ls.price_change_pct, ls.rsi_14, ls.updated_at"
+        " FROM theeyebeta.latest_snapshots ls"
+        " JOIN theeyebeta.instruments i ON i.id = ls.instrument_id"
         " ORDER BY ls.updated_at DESC LIMIT :limit"
     ),
     "latest_signals": (
-        "SELECT t.ticker, ls.latest_signal, ls.signal_confidence,"
+        "SELECT i.symbol AS ticker, ls.latest_signal, ls.signal_confidence,"
         " ls.signal_strategy, ls.signal_ts"
-        " FROM latest_snapshot ls"
-        " JOIN tickers t ON t.ticker_id = ls.ticker_id"
+        " FROM theeyebeta.latest_snapshots ls"
+        " JOIN theeyebeta.instruments i ON i.id = ls.instrument_id"
         " WHERE ls.latest_signal IS NOT NULL"
         " ORDER BY ls.signal_ts DESC LIMIT :limit"
     ),
-    "recent_trades": (
-        "SELECT * FROM paper_trades ORDER BY created_at DESC LIMIT :limit"
+    "orders": (
+        "SELECT * FROM theeyebeta.orders ORDER BY created_at DESC LIMIT :limit"
     ),
     "portfolio": (
-        "SELECT * FROM portfolio_positions ORDER BY quantity DESC LIMIT :limit"
-    ),
-    "valuation": (
-        "SELECT * FROM portfolio_valuation ORDER BY valuation_date DESC LIMIT :limit"
+        "SELECT * FROM theeyebeta.positions ORDER BY market_value DESC NULLS LAST LIMIT :limit"
     ),
     "command_log": (
-        "SELECT command_id, command_type, status, operator_id, created_at"
-        " FROM trask_command_log ORDER BY created_at DESC LIMIT :limit"
+        "SELECT id, actor, action, entity_type, entity_id, ts"
+        " FROM theeyebeta.audit_log ORDER BY ts DESC LIMIT :limit"
     ),
     "market_news": (
-        "SELECT * FROM market_news ORDER BY published_at DESC LIMIT :limit"
+        "SELECT * FROM theeyebeta.market_news ORDER BY published_at DESC LIMIT :limit"
     ),
     "heartbeats": (
-        "SELECT * FROM engine_worker_heartbeats ORDER BY worker_name LIMIT :limit"
+        "SELECT * FROM theeyebeta.worker_heartbeats ORDER BY worker_id LIMIT :limit"
     ),
     "table_stats": (
         "SELECT schemaname, relname AS tablename, n_live_tup AS row_count"
-        " FROM pg_stat_user_tables ORDER BY n_live_tup DESC LIMIT :limit"
+        " FROM pg_stat_user_tables WHERE schemaname = 'theeyebeta'"
+        " ORDER BY n_live_tup DESC LIMIT :limit"
     ),
 }
 
@@ -130,10 +127,12 @@ class SQLMarketDataRepository(MarketDataRepository):
             rows = self._session.execute(
                 text(
                     """
-                    SELECT ticker, company_name
-                    FROM tickers
-                    WHERE is_active = true
-                    ORDER BY ticker
+                    SELECT
+                        symbol AS ticker,
+                        COALESCE(metadata->>'company_name', metadata->>'name', symbol) AS company_name
+                    FROM theeyebeta.instruments
+                    WHERE active = true
+                    ORDER BY symbol
                     LIMIT :limit
                     """
                 ),
@@ -149,11 +148,16 @@ class SQLMarketDataRepository(MarketDataRepository):
             rows = self._session.execute(
                 text(
                     """
-                    SELECT ticker, company_name
-                    FROM tickers
-                    WHERE is_active = true
-                      AND (UPPER(ticker) LIKE UPPER(:prefix) OR UPPER(company_name) LIKE UPPER(:name_like))
-                    ORDER BY ticker
+                    SELECT
+                        symbol AS ticker,
+                        COALESCE(metadata->>'company_name', metadata->>'name', symbol) AS company_name
+                    FROM theeyebeta.instruments
+                    WHERE active = true
+                      AND (
+                        UPPER(symbol) LIKE UPPER(:prefix)
+                        OR UPPER(COALESCE(metadata->>'company_name', metadata->>'name', symbol)) LIKE UPPER(:name_like)
+                      )
+                    ORDER BY symbol
                     LIMIT :limit
                     """
                 ),
@@ -170,8 +174,8 @@ class SQLMarketDataRepository(MarketDataRepository):
                 text(
                     """
                     SELECT
-                        t.ticker,
-                        t.company_name,
+                        i.symbol AS ticker,
+                        COALESCE(i.metadata->>'company_name', i.metadata->>'name', i.symbol) AS company_name,
                         ls.last_price,
                         ls.price_change_pct,
                         ls.rsi_14,
@@ -182,9 +186,9 @@ class SQLMarketDataRepository(MarketDataRepository):
                         ls.macd_signal,
                         ls.macd_hist,
                         ls.updated_at
-                    FROM latest_snapshot ls
-                    JOIN tickers t ON t.ticker_id = ls.ticker_id
-                    WHERE UPPER(t.ticker) = UPPER(:ticker)
+                    FROM theeyebeta.latest_snapshots ls
+                    JOIN theeyebeta.instruments i ON i.id = ls.instrument_id
+                    WHERE UPPER(i.symbol) = UPPER(:ticker)
                     """
                 ),
                 {"ticker": ticker},
@@ -215,7 +219,7 @@ class SQLMarketDataRepository(MarketDataRepository):
                 text(
                     """
                     SELECT headline, source, category, published_at
-                    FROM market_news
+                    FROM theeyebeta.market_news
                     ORDER BY published_at DESC
                     LIMIT :limit
                     """
@@ -245,7 +249,7 @@ class SQLMarketDataRepository(MarketDataRepository):
                 text(
                     f"""
                     SELECT
-                        t.ticker,
+                        i.symbol AS ticker,
                         ls.signal_strategy AS strategy_name,
                         ls.latest_signal AS signal,
                         ls.signal_confidence AS confidence,
@@ -253,11 +257,11 @@ class SQLMarketDataRepository(MarketDataRepository):
                         NULL::numeric AS target_price,
                         NULL::numeric AS stop_loss,
                         ls.signal_ts AS ts
-                    FROM latest_snapshot ls
-                    JOIN tickers t ON t.ticker_id = ls.ticker_id
+                    FROM theeyebeta.latest_snapshots ls
+                    JOIN theeyebeta.instruments i ON i.id = ls.instrument_id
                     WHERE ls.latest_signal IS NOT NULL
-                      {'AND UPPER(t.ticker) = UPPER(:ticker)' if ticker else ''}
-                    ORDER BY ls.signal_ts DESC NULLS LAST, t.ticker ASC
+                      {'AND UPPER(i.symbol) = UPPER(:ticker)' if ticker else ''}
+                    ORDER BY ls.signal_ts DESC NULLS LAST, i.symbol ASC
                     LIMIT :limit
                     """
                 ),
@@ -286,22 +290,21 @@ class SQLMarketDataRepository(MarketDataRepository):
                 text(
                     """
                     SELECT
-                        valuation_date,
-                        total_value,
-                        cash_balance,
-                        positions_value,
-                        total_cost_basis,
-                        unrealized_pnl,
-                        realized_pnl,
-                        currency_code,
-                        created_at
-                    FROM portfolio_valuation
-                    ORDER BY valuation_date DESC, created_at DESC
+                        MAX(updated_at)::date AS valuation_date,
+                        SUM(market_value) AS total_value,
+                        NULL::numeric AS cash_balance,
+                        SUM(market_value) AS positions_value,
+                        SUM(qty * avg_entry_price) AS total_cost_basis,
+                        SUM(unrealized_pnl) AS unrealized_pnl,
+                        SUM(realized_pnl) AS realized_pnl,
+                        NULL::text AS currency_code,
+                        MAX(updated_at) AS created_at
+                    FROM theeyebeta.positions
                     LIMIT 1
                     """
                 )
             ).mappings().first()
-            if not row:
+            if not row or row.get("total_value") is None:
                 return None
             currency = row.get("currency_code")
             return PortfolioValuation(
@@ -325,18 +328,18 @@ class SQLMarketDataRepository(MarketDataRepository):
                 text(
                     """
                     SELECT
-                        t.ticker,
-                        t.company_name,
-                        p.quantity,
-                        p.average_cost,
+                        i.symbol AS ticker,
+                        COALESCE(i.metadata->>'company_name', i.metadata->>'name', i.symbol) AS company_name,
+                        p.qty AS quantity,
+                        p.avg_entry_price AS average_cost,
                         ls.last_price,
-                        (p.quantity * ls.last_price) AS market_value,
-                        (p.quantity * (ls.last_price - p.average_cost)) AS unrealized_pnl,
-                        p.last_updated
-                    FROM portfolio_positions p
-                    JOIN tickers t ON t.ticker_id = p.ticker_id
-                    LEFT JOIN latest_snapshot ls ON ls.ticker_id = p.ticker_id
-                    ORDER BY market_value DESC NULLS LAST, t.ticker
+                        COALESCE(p.market_value, p.qty * ls.last_price) AS market_value,
+                        p.unrealized_pnl,
+                        p.updated_at AS last_updated
+                    FROM theeyebeta.positions p
+                    JOIN theeyebeta.instruments i ON i.id = p.instrument_id
+                    LEFT JOIN theeyebeta.latest_snapshots ls ON ls.instrument_id = p.instrument_id
+                    ORDER BY market_value DESC NULLS LAST, i.symbol
                     LIMIT :limit
                     """
                 ),
@@ -359,198 +362,6 @@ class SQLMarketDataRepository(MarketDataRepository):
             logger.exception("get_portfolio_positions failed")
             raise DatabaseUnavailableError("Unable to fetch portfolio positions") from exc
 
-    def create_trade_order(
-        self,
-        *,
-        operator_subject: str,
-        symbol: str,
-        side: str,
-        quantity: float,
-        idempotency_key: str,
-        limit_price: float | None = None,
-    ) -> TradeOrderResult:
-        normalized_symbol = symbol.strip().upper()
-        normalized_side = side.strip().lower()
-        trade_type = normalized_side.upper()
-        if normalized_side not in {"buy", "sell"}:
-            raise ValidationAppError("side must be buy or sell")
-        if quantity <= 0:
-            raise ValidationAppError("quantity must be greater than zero")
-
-        try:
-            existing = self._session.execute(
-                text(
-                    """
-                    SELECT result, created_at
-                    FROM trask_command_log
-                    WHERE command_type = 'api_trade_order'
-                      AND operator_id = :operator_id
-                      AND params ->> 'idempotency_key' = :idempotency_key
-                    ORDER BY created_at DESC
-                    LIMIT 1
-                    """
-                ),
-                {"operator_id": operator_subject, "idempotency_key": idempotency_key},
-            ).mappings().first()
-            if existing:
-                raw_result = existing.get("result")
-                result = raw_result if isinstance(raw_result, dict) else {}
-                order_ref = str(result.get("order_ref", "unknown"))
-                executed_price = _to_float(result.get("executed_price")) or 0.0
-                total_cost = _to_float(result.get("total_cost")) or 0.0
-                return TradeOrderResult(
-                    order_ref=order_ref,
-                    status="accepted",
-                    idempotency_key=idempotency_key,
-                    symbol=normalized_symbol,
-                    side=normalized_side,
-                    quantity=quantity,
-                    executed_price=executed_price,
-                    total_cost=total_cost,
-                    accepted_at=_to_datetime(existing.get("created_at")),
-                    idempotent_replay=True,
-                )
-
-            ticker_row = self._session.execute(
-                text(
-                    """
-                    SELECT t.ticker_id, ls.last_price
-                    FROM tickers t
-                    LEFT JOIN latest_snapshot ls ON ls.ticker_id = t.ticker_id
-                    WHERE UPPER(t.ticker) = UPPER(:ticker)
-                    LIMIT 1
-                    """
-                ),
-                {"ticker": normalized_symbol},
-            ).mappings().first()
-            if not ticker_row:
-                raise ValidationAppError(f"Unknown symbol: {normalized_symbol}")
-
-            latest_price = _to_float(ticker_row.get("last_price"))
-            execution_price = float(limit_price) if limit_price is not None else latest_price
-            if execution_price is None:
-                raise ValidationAppError(
-                    f"Cannot place order for {normalized_symbol}: no latest price available and no limit_price provided"
-                )
-
-            total_cost = float(quantity) * execution_price
-            trade_row = self._session.execute(
-                text(
-                    """
-                    INSERT INTO paper_trades (
-                        ticker_id,
-                        trade_date,
-                        trade_type,
-                        quantity,
-                        price,
-                        fees,
-                        slippage_bps,
-                        total_cost,
-                        notes,
-                        created_at
-                    )
-                    VALUES (
-                        :ticker_id,
-                        NOW(),
-                        :trade_type,
-                        :quantity,
-                        :price,
-                        0,
-                        0,
-                        :total_cost,
-                        :notes,
-                        NOW()
-                    )
-                    RETURNING trade_id, trade_date
-                    """
-                ),
-                {
-                    "ticker_id": ticker_row["ticker_id"],
-                    "trade_type": trade_type,
-                    "quantity": quantity,
-                    "price": execution_price,
-                    "total_cost": total_cost,
-                    "notes": f"operator={operator_subject};idempotency_key={idempotency_key}",
-                },
-            ).mappings().first()
-            if not trade_row:
-                raise DatabaseUnavailableError("Trade order insert did not return trade id")
-
-            order_ref = f"paper-trade-{trade_row['trade_id']}"
-            command_id = str(uuid.uuid4())
-            params_json = json.dumps(
-                {
-                    "idempotency_key": idempotency_key,
-                    "symbol": normalized_symbol,
-                    "side": normalized_side,
-                    "quantity": quantity,
-                }
-            )
-            result_json = json.dumps(
-                {
-                    "order_ref": order_ref,
-                    "executed_price": execution_price,
-                    "total_cost": total_cost,
-                }
-            )
-            self._session.execute(
-                text(
-                    """
-                    INSERT INTO trask_command_log (
-                        command_id,
-                        command_type,
-                        target_type,
-                        target_id,
-                        operator_id,
-                        status,
-                        params,
-                        result,
-                        created_at,
-                        completed_at
-                    )
-                    VALUES (
-                        :command_id,
-                        'api_trade_order',
-                        'paper_trade',
-                        :target_id,
-                        :operator_id,
-                        'completed',
-                        CAST(:params AS JSONB),
-                        CAST(:result AS JSONB),
-                        NOW(),
-                        NOW()
-                    )
-                    """
-                ),
-                {
-                    "command_id": command_id,
-                    "target_id": str(trade_row["trade_id"]),
-                    "operator_id": operator_subject,
-                    "params": params_json,
-                    "result": result_json,
-                },
-            )
-            self._session.commit()
-            return TradeOrderResult(
-                order_ref=order_ref,
-                status="accepted",
-                idempotency_key=idempotency_key,
-                symbol=normalized_symbol,
-                side=normalized_side,
-                quantity=quantity,
-                executed_price=execution_price,
-                total_cost=total_cost,
-                accepted_at=_to_datetime(trade_row.get("trade_date")),
-                idempotent_replay=False,
-            )
-        except ValidationAppError:
-            self._session.rollback()
-            raise
-        except SQLAlchemyError as exc:
-            self._session.rollback()
-            logger.exception("create_trade_order failed")
-            raise DatabaseUnavailableError("Unable to create trade order") from exc
-
     def get_admin_audit_events(self, limit: int = 50, category: str | None = None) -> list[AdminAuditEvent]:
         try:
             where_clause = ""
@@ -572,7 +383,7 @@ class SQLMarketDataRepository(MarketDataRepository):
                         severity,
                         payload,
                         created_at
-                    FROM trask_recent_events
+                    FROM theeyebeta.trask_audit_events_archive
                     {where_clause}
                     ORDER BY created_at DESC
                     LIMIT :limit
@@ -601,22 +412,17 @@ class SQLMarketDataRepository(MarketDataRepository):
 
     def get_table_row_counts(self) -> list[dict[str, Any]]:
         try:
-            tables = [
-                "tickers", "latest_snapshot", "market_news", "paper_trades",
-                "portfolio_positions", "portfolio_valuation",
-                "trask_command_log", "trask_recent_events",
-            ]
-            results = []
-            for table in tables:
-                try:
-                    row = self._session.execute(
-                        text(f"SELECT COUNT(*) AS cnt FROM {table}")  # noqa: S608
-                    ).mappings().first()
-                    results.append({"table": table, "row_count": int(row["cnt"]) if row else 0})
-                except SQLAlchemyError:
-                    results.append({"table": table, "row_count": -1, "error": "table not found"})
-                    self._session.rollback()
-            return results
+            rows = self._session.execute(
+                text(
+                    """
+                    SELECT relname AS table, n_live_tup AS row_count
+                    FROM pg_stat_user_tables
+                    WHERE schemaname = 'theeyebeta'
+                    ORDER BY n_live_tup DESC, relname
+                    """
+                )
+            ).mappings().all()
+            return [{"table": str(r["table"]), "row_count": int(r["row_count"])} for r in rows]
         except SQLAlchemyError as exc:
             logger.exception("get_table_row_counts failed")
             raise DatabaseUnavailableError("Unable to fetch table counts") from exc
@@ -627,13 +433,13 @@ class SQLMarketDataRepository(MarketDataRepository):
                 text(
                     """
                     SELECT
-                        worker_name,
+                        worker_id AS worker_name,
                         status,
                         last_heartbeat,
                         EXTRACT(EPOCH FROM (NOW() - last_heartbeat))::int AS seconds_ago,
                         metadata
-                    FROM engine_worker_heartbeats
-                    ORDER BY worker_name
+                    FROM theeyebeta.worker_heartbeats
+                    ORDER BY worker_id
                     """
                 )
             ).mappings().all()
@@ -652,46 +458,7 @@ class SQLMarketDataRepository(MarketDataRepository):
             return []
 
     def execute_readonly_query(self, query: str, limit: int = 100) -> list[dict[str, Any]]:
-        import re
-
-        normalized = query.strip().rstrip(";").strip()
-
-        # Reject embedded semicolons (multi-statement attacks).
-        if ";" in normalized:
-            raise ValidationAppError("Query must be a single statement")
-
-        # Strip inline comments before keyword checks to prevent comment-based bypasses.
-        stripped = re.sub(r"--[^\n]*", " ", normalized)
-        stripped = re.sub(r"/\*.*?\*/", " ", stripped, flags=re.DOTALL)
-        # Collapse whitespace so keyword checks work on canonical form.
-        canonical = re.sub(r"\s+", " ", stripped).strip().upper()
-
-        if not canonical.startswith("SELECT"):
-            raise ValidationAppError("Only SELECT queries are allowed")
-
-        # WITH blocks enable CTEs that can wrap any DDL/DML — block them entirely.
-        forbidden = {
-            "INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "TRUNCATE", "CREATE",
-            "GRANT", "REVOKE", "EXECUTE", "EXEC", "CALL", "COPY", "LOAD",
-            "IMPORT", "EXPORT", "WITH", "SET", "SHOW", "EXPLAIN", "ANALYZE",
-            "VACUUM", "REINDEX", "CLUSTER", "COMMENT", "NOTIFY", "LISTEN",
-            "UNLISTEN", "CHECKPOINT", "DO",
-        }
-        for keyword in forbidden:
-            # Match whole words only to avoid false positives (e.g. "NETWORK" containing "SET").
-            if re.search(rf"\b{re.escape(keyword)}\b", canonical):
-                raise ValidationAppError(f"Query contains forbidden keyword: {keyword}")
-
-        try:
-            limited_query = f"SELECT * FROM ({normalized}) AS _q LIMIT :_limit"
-            rows = self._session.execute(text(limited_query), {"_limit": limit}).mappings().all()
-            return [
-                {k: (str(v) if v is not None else None) for k, v in dict(row).items()}
-                for row in rows
-            ]
-        except SQLAlchemyError as exc:
-            logger.exception("execute_readonly_query failed")
-            raise DatabaseUnavailableError(f"Query failed: {exc}") from exc
+        raise ValidationAppError("Arbitrary SQL is disabled; use the read-only table API")
 
     def execute_named_query(self, query_name: str, limit: int = 100) -> list[dict[str, Any]]:
         sql = _CURATED_ADMIN_QUERIES.get(query_name)
@@ -717,7 +484,7 @@ class SQLMarketDataRepository(MarketDataRepository):
     def get_active_ticker_count(self) -> int:
         try:
             row = self._session.execute(
-                text("SELECT COUNT(*) AS cnt FROM tickers WHERE is_active = true")
+                text("SELECT COUNT(*) AS cnt FROM theeyebeta.instruments WHERE active = true")
             ).mappings().first()
             return int(row["cnt"]) if row else 0
         except SQLAlchemyError:
@@ -759,7 +526,17 @@ class SQLMarketDataRepository(MarketDataRepository):
     def get_countries(self) -> list[Country]:
         try:
             rows = self._session.execute(
-                text("SELECT country_code, country_name, default_timezone FROM countries ORDER BY country_name")
+                text(
+                    """
+                    SELECT DISTINCT
+                        country_iso2 AS country_code,
+                        country_iso2 AS country_name,
+                        NULL::text AS default_timezone
+                    FROM theeyebeta.exchanges
+                    WHERE country_iso2 IS NOT NULL
+                    ORDER BY country_iso2
+                    """
+                )
             ).mappings().all()
             return [Country(country_code=str(r["country_code"]), country_name=str(r["country_name"]), default_timezone=str(r["default_timezone"]) if r.get("default_timezone") else None) for r in rows]
         except SQLAlchemyError as exc:
@@ -769,7 +546,17 @@ class SQLMarketDataRepository(MarketDataRepository):
     def get_currencies(self) -> list[Currency]:
         try:
             rows = self._session.execute(
-                text("SELECT currency_code, currency_name, symbol FROM currencies ORDER BY currency_code")
+                text(
+                    """
+                    SELECT DISTINCT
+                        currency_iso AS currency_code,
+                        currency_iso AS currency_name,
+                        NULL::text AS symbol
+                    FROM theeyebeta.exchanges
+                    WHERE currency_iso IS NOT NULL
+                    ORDER BY currency_iso
+                    """
+                )
             ).mappings().all()
             return [Currency(currency_code=str(r["currency_code"]), currency_name=str(r["currency_name"]), symbol=str(r["symbol"]) if r.get("symbol") else None) for r in rows]
         except SQLAlchemyError as exc:
@@ -779,7 +566,18 @@ class SQLMarketDataRepository(MarketDataRepository):
     def get_exchanges(self) -> list[Exchange]:
         try:
             rows = self._session.execute(
-                text("SELECT exchange_id, name, mic_code, country_code, timezone FROM exchanges ORDER BY name")
+                text(
+                    """
+                    SELECT
+                        id AS exchange_id,
+                        name,
+                        code AS mic_code,
+                        country_iso2 AS country_code,
+                        timezone
+                    FROM theeyebeta.exchanges
+                    ORDER BY name
+                    """
+                )
             ).mappings().all()
             return [
                 Exchange(
@@ -798,7 +596,17 @@ class SQLMarketDataRepository(MarketDataRepository):
     def get_sectors(self) -> list[Sector]:
         try:
             rows = self._session.execute(
-                text("SELECT sector_id, sector_name FROM sectors ORDER BY sector_name")
+                text(
+                    """
+                    SELECT DENSE_RANK() OVER (ORDER BY sector)::int AS sector_id, sector AS sector_name
+                    FROM (
+                        SELECT DISTINCT sector
+                        FROM theeyebeta.instruments
+                        WHERE sector IS NOT NULL AND sector <> ''
+                    ) sectors
+                    ORDER BY sector
+                    """
+                )
             ).mappings().all()
             return [Sector(sector_id=int(r["sector_id"]), sector_name=str(r["sector_name"])) for r in rows]
         except SQLAlchemyError as exc:
@@ -809,12 +617,59 @@ class SQLMarketDataRepository(MarketDataRepository):
         try:
             if sector_id is not None:
                 rows = self._session.execute(
-                    text("SELECT industry_id, sector_id, industry_name FROM industries WHERE sector_id = :sid ORDER BY industry_name"),
+                    text(
+                        """
+                        WITH sectors AS (
+                            SELECT sector, DENSE_RANK() OVER (ORDER BY sector)::int AS sector_id
+                            FROM (
+                                SELECT DISTINCT sector
+                                FROM theeyebeta.instruments
+                                WHERE sector IS NOT NULL AND sector <> ''
+                            ) s
+                        ),
+                        industries AS (
+                            SELECT DISTINCT s.sector_id, i.industry
+                            FROM theeyebeta.instruments i
+                            JOIN sectors s ON s.sector = i.sector
+                            WHERE i.industry IS NOT NULL AND i.industry <> ''
+                        )
+                        SELECT
+                            DENSE_RANK() OVER (ORDER BY sector_id, industry)::int AS industry_id,
+                            sector_id,
+                            industry AS industry_name
+                        FROM industries
+                        WHERE sector_id = :sid
+                        ORDER BY industry
+                        """
+                    ),
                     {"sid": sector_id},
                 ).mappings().all()
             else:
                 rows = self._session.execute(
-                    text("SELECT industry_id, sector_id, industry_name FROM industries ORDER BY industry_name")
+                    text(
+                        """
+                        WITH sectors AS (
+                            SELECT sector, DENSE_RANK() OVER (ORDER BY sector)::int AS sector_id
+                            FROM (
+                                SELECT DISTINCT sector
+                                FROM theeyebeta.instruments
+                                WHERE sector IS NOT NULL AND sector <> ''
+                            ) s
+                        ),
+                        industries AS (
+                            SELECT DISTINCT s.sector_id, i.industry
+                            FROM theeyebeta.instruments i
+                            JOIN sectors s ON s.sector = i.sector
+                            WHERE i.industry IS NOT NULL AND i.industry <> ''
+                        )
+                        SELECT
+                            DENSE_RANK() OVER (ORDER BY sector_id, industry)::int AS industry_id,
+                            sector_id,
+                            industry AS industry_name
+                        FROM industries
+                        ORDER BY industry
+                        """
+                    )
                 ).mappings().all()
             return [Industry(industry_id=int(r["industry_id"]), sector_id=int(r["sector_id"]), industry_name=str(r["industry_name"])) for r in rows]
         except SQLAlchemyError as exc:
@@ -833,7 +688,7 @@ class SQLMarketDataRepository(MarketDataRepository):
                 params["end"] = end
             where = ("WHERE " + " AND ".join(where_parts)) if where_parts else ""
             rows = self._session.execute(
-                text(f"SELECT calendar_date, is_trading_day, market_name, holiday_name, notes FROM trading_calendar {where} ORDER BY calendar_date DESC LIMIT :limit"),  # noqa: S608
+                text(f"SELECT calendar_date, is_trading_day, market_name, holiday_name, notes FROM theeyebeta.trading_calendar {where} ORDER BY calendar_date DESC LIMIT :limit"),  # noqa: S608
                 params,
             ).mappings().all()
             return [
@@ -858,30 +713,36 @@ class SQLMarketDataRepository(MarketDataRepository):
                 text(
                     """
                     SELECT
-                        t.ticker, t.company_name, t.asset_type, t.country_code, t.timezone,
-                        t.currency_code, t.is_active,
-                        p.sector_id, p.industry_id, p.website, p.description,
-                        p.founded_year, p.employees
-                    FROM tickers t
-                    LEFT JOIN ticker_profile p ON p.ticker_id = t.ticker_id
-                    WHERE UPPER(t.ticker) = UPPER(:ticker)
+                        i.symbol AS ticker,
+                        COALESCE(i.metadata->>'company_name', i.metadata->>'name', i.symbol) AS company_name,
+                        i.asset_class AS asset_type,
+                        e.country_iso2 AS country_code,
+                        e.timezone,
+                        e.currency_iso AS currency_code,
+                        i.active AS is_active,
+                        NULL::int AS sector_id,
+                        NULL::int AS industry_id,
+                        NULL::text AS website,
+                        i.metadata->>'description' AS description,
+                        NULL::int AS founded_year,
+                        NULL::int AS employees,
+                        i.isin,
+                        i.cusip,
+                        i.figi
+                    FROM theeyebeta.instruments i
+                    LEFT JOIN theeyebeta.exchanges e ON e.id = i.exchange_id
+                    WHERE UPPER(i.symbol) = UPPER(:ticker)
                     """
                 ),
                 {"ticker": ticker},
             ).mappings().first()
             if not row:
                 return None
-            id_rows = self._session.execute(
-                text(
-                    """
-                    SELECT ti.id_type, ti.id_value
-                    FROM ticker_identifiers ti
-                    JOIN tickers t ON t.ticker_id = ti.ticker_id
-                    WHERE UPPER(t.ticker) = UPPER(:ticker)
-                    """
-                ),
-                {"ticker": ticker},
-            ).mappings().all()
+            identifiers = [
+                {"id_type": id_type, "id_value": str(row[id_type])}
+                for id_type in ("isin", "cusip", "figi")
+                if row.get(id_type)
+            ]
             return TickerDetail(
                 ticker=str(row["ticker"]),
                 company_name=str(row["company_name"]),
@@ -896,7 +757,7 @@ class SQLMarketDataRepository(MarketDataRepository):
                 description=str(row["description"]) if row.get("description") else None,
                 founded_year=int(row["founded_year"]) if row.get("founded_year") is not None else None,
                 employees=int(row["employees"]) if row.get("employees") is not None else None,
-                identifiers=[{"id_type": str(r["id_type"]), "id_value": str(r["id_value"])} for r in id_rows],
+                identifiers=identifiers,
             )
         except SQLAlchemyError as exc:
             logger.exception("get_ticker_detail failed")
@@ -904,23 +765,23 @@ class SQLMarketDataRepository(MarketDataRepository):
 
     def get_price_history(self, ticker: str, start: date | None = None, end: date | None = None, limit: int = 252) -> list[PriceDay]:
         try:
-            where_parts = ["UPPER(t.ticker) = UPPER(:ticker)"]
+            where_parts = ["UPPER(i.symbol) = UPPER(:ticker)"]
             params: dict[str, Any] = {"ticker": ticker, "limit": limit}
             if start:
-                where_parts.append("p.date >= :start")
+                where_parts.append("p.ts::date >= :start")
                 params["start"] = start
             if end:
-                where_parts.append("p.date <= :end")
+                where_parts.append("p.ts::date <= :end")
                 params["end"] = end
             where = " AND ".join(where_parts)
             rows = self._session.execute(
                 text(
                     f"""
-                    SELECT p.date, p.open, p.high, p.low, p.close, p.adj_close, p.volume, p.vwap
-                    FROM price_daily p
-                    JOIN tickers t ON t.ticker_id = p.ticker_id
+                    SELECT p.ts::date AS date, p.open, p.high, p.low, p.close, p.adj_close, p.volume, p.vwap
+                    FROM theeyebeta.prices_daily p
+                    JOIN theeyebeta.instruments i ON i.id = p.instrument_id
                     WHERE {where}
-                    ORDER BY p.date DESC
+                    ORDER BY p.ts DESC
                     LIMIT :limit
                     """  # noqa: S608
                 ),
@@ -948,12 +809,21 @@ class SQLMarketDataRepository(MarketDataRepository):
             rows = self._session.execute(
                 text(
                     """
-                    SELECT ca.action_id, ca.action_date, ca.action_type,
-                           ca.split_ratio, ca.dividend_amount, ca.notes
-                    FROM corporate_actions ca
-                    JOIN tickers t ON t.ticker_id = ca.ticker_id
-                    WHERE UPPER(t.ticker) = UPPER(:ticker)
-                    ORDER BY ca.action_date DESC
+                    SELECT
+                        ca.id AS action_id,
+                        ca.ex_date AS action_date,
+                        ca.action_type,
+                        CASE
+                            WHEN ca.ratio_num IS NOT NULL AND ca.ratio_den IS NOT NULL AND ca.ratio_den <> 0
+                            THEN ca.ratio_num / ca.ratio_den
+                            ELSE NULL
+                        END AS split_ratio,
+                        ca.cash_amount AS dividend_amount,
+                        ca.metadata::text AS notes
+                    FROM theeyebeta.corporate_actions ca
+                    JOIN theeyebeta.instruments i ON i.id = ca.instrument_id
+                    WHERE UPPER(i.symbol) = UPPER(:ticker)
+                    ORDER BY ca.ex_date DESC
                     LIMIT :limit
                     """
                 ),
@@ -985,9 +855,9 @@ class SQLMarketDataRepository(MarketDataRepository):
                            f.pe_ratio, f.pe_forward, f.peg_ratio, f.price_to_book, f.price_to_sales,
                            f.ev_to_ebitda, f.ev_to_revenue, f.dividend_rate, f.dividend_yield,
                            f.ex_dividend_date, f.payout_ratio, f.currency, f.source, f.last_updated
-                    FROM fundamentals_company f
-                    JOIN tickers t ON t.ticker_id = f.ticker_id
-                    WHERE UPPER(t.ticker) = UPPER(:ticker)
+                    FROM theeyebeta.fundamentals_company f
+                    JOIN theeyebeta.instruments i ON i.id = f.instrument_id
+                    WHERE UPPER(i.symbol) = UPPER(:ticker)
                     """
                 ),
                 {"ticker": ticker},
@@ -1029,7 +899,7 @@ class SQLMarketDataRepository(MarketDataRepository):
     # ── Financial statements ──────────────────────────────────────────────────
 
     def _quarterly_params(self, ticker: str, limit: int) -> tuple[str, dict[str, Any]]:
-        return "UPPER(t.ticker) = UPPER(:ticker)", {"ticker": ticker, "limit": limit}
+        return "UPPER(i.symbol) = UPPER(:ticker)", {"ticker": ticker, "limit": limit}
 
     def get_income_statements(self, ticker: str, limit: int = 12) -> list[IncomeStatementQ]:
         try:
@@ -1039,9 +909,9 @@ class SQLMarketDataRepository(MarketDataRepository):
                     SELECT fi.period_end, fi.fiscal_year, fi.fiscal_quarter,
                            fi.revenue, fi.gross_profit, fi.ebit, fi.ebitda,
                            fi.interest_expense, fi.net_income, fi.eps_basic, fi.eps_diluted
-                    FROM fund_income_q fi
-                    JOIN tickers t ON t.ticker_id = fi.ticker_id
-                    WHERE UPPER(t.ticker) = UPPER(:ticker)
+                    FROM theeyebeta.fund_income_q fi
+                    JOIN theeyebeta.instruments i ON i.id = fi.instrument_id
+                    WHERE UPPER(i.symbol) = UPPER(:ticker)
                     ORDER BY fi.period_end DESC
                     LIMIT :limit
                     """
@@ -1076,9 +946,9 @@ class SQLMarketDataRepository(MarketDataRepository):
                     SELECT fb.period_end, fb.fiscal_year, fb.fiscal_quarter,
                            fb.total_assets, fb.total_liabilities, fb.total_equity,
                            fb.total_debt, fb.cash_and_equivalents, fb.shares_outstanding
-                    FROM fund_balance_q fb
-                    JOIN tickers t ON t.ticker_id = fb.ticker_id
-                    WHERE UPPER(t.ticker) = UPPER(:ticker)
+                    FROM theeyebeta.fund_balance_q fb
+                    JOIN theeyebeta.instruments i ON i.id = fb.instrument_id
+                    WHERE UPPER(i.symbol) = UPPER(:ticker)
                     ORDER BY fb.period_end DESC
                     LIMIT :limit
                     """
@@ -1110,9 +980,9 @@ class SQLMarketDataRepository(MarketDataRepository):
                     """
                     SELECT fc.period_end, fc.fiscal_year, fc.fiscal_quarter,
                            fc.ocf, fc.capex, fc.fcf, fc.working_cap_change, fc.stock_based_comp
-                    FROM fund_cashflow_q fc
-                    JOIN tickers t ON t.ticker_id = fc.ticker_id
-                    WHERE UPPER(t.ticker) = UPPER(:ticker)
+                    FROM theeyebeta.fund_cashflow_q fc
+                    JOIN theeyebeta.instruments i ON i.id = fc.instrument_id
+                    WHERE UPPER(i.symbol) = UPPER(:ticker)
                     ORDER BY fc.period_end DESC
                     LIMIT :limit
                     """
@@ -1141,14 +1011,29 @@ class SQLMarketDataRepository(MarketDataRepository):
             rows = self._session.execute(
                 text(
                     """
-                    SELECT iq.period_end, iq.fiscal_year, iq.fiscal_quarter,
-                           iq.nopat, iq.invested_capital, iq.roic, iq.roe, iq.roa, iq.roce,
-                           iq.wacc, iq.cost_of_equity, iq.cost_of_debt, iq.roic_wacc_spread,
-                           iq.debt_equity, iq.net_debt_ebitda, iq.interest_coverage, iq.ocf, iq.fcf
-                    FROM ind_quality_q iq
-                    JOIN tickers t ON t.ticker_id = iq.ticker_id
-                    WHERE UPPER(t.ticker) = UPPER(:ticker)
-                    ORDER BY iq.period_end DESC
+                    SELECT
+                        f.period_end,
+                        EXTRACT(YEAR FROM f.period_end)::int AS fiscal_year,
+                        NULL::int AS fiscal_quarter,
+                        NULL::numeric AS nopat,
+                        NULL::numeric AS invested_capital,
+                        NULL::numeric AS roic,
+                        f.roe,
+                        NULL::numeric AS roa,
+                        NULL::numeric AS roce,
+                        NULL::numeric AS wacc,
+                        NULL::numeric AS cost_of_equity,
+                        NULL::numeric AS cost_of_debt,
+                        NULL::numeric AS roic_wacc_spread,
+                        f.debt_to_equity AS debt_equity,
+                        NULL::numeric AS net_debt_ebitda,
+                        NULL::numeric AS interest_coverage,
+                        NULL::numeric AS ocf,
+                        f.free_cash_flow AS fcf
+                    FROM theeyebeta.fundamentals f
+                    JOIN theeyebeta.instruments i ON i.id = f.instrument_id
+                    WHERE UPPER(i.symbol) = UPPER(:ticker)
+                    ORDER BY f.period_end DESC
                     LIMIT :limit
                     """
                 ),
@@ -1184,7 +1069,7 @@ class SQLMarketDataRepository(MarketDataRepository):
     # ── Indicator time-series ─────────────────────────────────────────────────
 
     def _date_range_params(self, ticker: str, start: date | None, end: date | None, limit: int) -> tuple[str, dict[str, Any]]:
-        parts = ["UPPER(t.ticker) = UPPER(:ticker)"]
+        parts = ["UPPER(inst.symbol) = UPPER(:ticker)"]
         params: dict[str, Any] = {"ticker": ticker, "limit": limit}
         if start:
             parts.append("i.date >= :start")
@@ -1203,8 +1088,8 @@ class SQLMarketDataRepository(MarketDataRepository):
                     SELECT i.date, i.sma_10, i.sma_50, i.sma_200, i.ema_10, i.ema_50, i.ema_200,
                            i.ema_12, i.ema_26, i.rsi_14, i.macd, i.macd_signal, i.macd_hist,
                            i.roc_10, i.roc_20, i.golden_cross_sma, i.death_cross_sma
-                    FROM ind_technical_daily i
-                    JOIN tickers t ON t.ticker_id = i.ticker_id
+                    FROM theeyebeta.ind_technical_daily i
+                    JOIN theeyebeta.instruments inst ON inst.id = i.instrument_id
                     WHERE {where}
                     ORDER BY i.date DESC
                     LIMIT :limit
@@ -1240,8 +1125,8 @@ class SQLMarketDataRepository(MarketDataRepository):
                            i.worst_drop_1d, i.worst_drop_5d, i.worst_drop_10d,
                            i.max_drawdown_1y, i.max_drawdown_2y,
                            i.sharpe_60d, i.sortino_60d, i.calmar_1y
-                    FROM ind_risk_daily i
-                    JOIN tickers t ON t.ticker_id = i.ticker_id
+                    FROM theeyebeta.ind_risk_daily i
+                    JOIN theeyebeta.instruments inst ON inst.id = i.instrument_id
                     WHERE {where}
                     ORDER BY i.date DESC
                     LIMIT :limit
@@ -1275,8 +1160,8 @@ class SQLMarketDataRepository(MarketDataRepository):
                            i.pe_ttm, i.forward_pe, i.ps_ttm, i.pb, i.ev_ebitda, i.ev_ebit, i.ev_fcf,
                            i.earnings_yield, i.fcf_yield,
                            i.pct_chg_1w, i.pct_chg_3m, i.pct_chg_6m, i.pct_chg_9m, i.pct_chg_ytd, i.pct_chg_1y
-                    FROM ind_valuation_daily i
-                    JOIN tickers t ON t.ticker_id = i.ticker_id
+                    FROM theeyebeta.ind_valuation_daily i
+                    JOIN theeyebeta.instruments inst ON inst.id = i.instrument_id
                     WHERE {where}
                     ORDER BY i.date DESC
                     LIMIT :limit
@@ -1310,8 +1195,8 @@ class SQLMarketDataRepository(MarketDataRepository):
                     f"""
                     SELECT i.date, i.ret_1w, i.ret_1m, i.ret_3m, i.ret_6m, i.ret_9m, i.ret_ytd, i.ret_1y,
                            i.price_field, i.computed_at
-                    FROM returns_snapshot_daily i
-                    JOIN tickers t ON t.ticker_id = i.ticker_id
+                    FROM theeyebeta.returns_snapshot_daily i
+                    JOIN theeyebeta.instruments inst ON inst.id = i.instrument_id
                     WHERE {where}
                     ORDER BY i.date DESC
                     LIMIT :limit
@@ -1344,9 +1229,9 @@ class SQLMarketDataRepository(MarketDataRepository):
                     """
                     SELECT n.news_id, n.source, n.title, n.url, n.published_at,
                            n.summary, n.sentiment, n.sentiment_score
-                    FROM news n
-                    JOIN tickers t ON t.ticker_id = n.ticker_id
-                    WHERE UPPER(t.ticker) = UPPER(:ticker)
+                    FROM theeyebeta.ticker_news n
+                    JOIN theeyebeta.instruments i ON i.id = n.instrument_id
+                    WHERE UPPER(i.symbol) = UPPER(:ticker)
                     ORDER BY n.published_at DESC
                     LIMIT :limit
                     """
@@ -1377,9 +1262,14 @@ class SQLMarketDataRepository(MarketDataRepository):
             rows = self._session.execute(
                 text(
                     """
-                    SELECT job_name, last_run_at, last_successful_date, status, last_error
-                    FROM etl_job_state
-                    ORDER BY job_name
+                    SELECT
+                        sync_name AS job_name,
+                        started_at AS last_run_at,
+                        completed_at::date AS last_successful_date,
+                        status,
+                        error_message AS last_error
+                    FROM theeyebeta.provider_sync_runs
+                    ORDER BY started_at DESC
                     """
                 )
             ).mappings().all()
@@ -1400,7 +1290,16 @@ class SQLMarketDataRepository(MarketDataRepository):
     def get_engine_status(self) -> list[EngineStatusEntry]:
         try:
             rows = self._session.execute(
-                text("SELECT key, value, updated_at FROM engine_status ORDER BY key")
+                text(
+                    """
+                    SELECT
+                        component_id AS key,
+                        state AS value,
+                        updated_at
+                    FROM theeyebeta.trask_components
+                    ORDER BY component_id
+                    """
+                )
             ).mappings().all()
             return [
                 EngineStatusEntry(
@@ -1421,9 +1320,9 @@ class SQLMarketDataRepository(MarketDataRepository):
                     """
                     SELECT pt.tick_id, pt.ts, pt.price, pt.open, pt.high, pt.low, pt.close,
                            pt.volume, pt.source
-                    FROM price_ticks pt
-                    JOIN tickers t ON t.ticker_id = pt.ticker_id
-                    WHERE UPPER(t.ticker) = UPPER(:ticker)
+                    FROM theeyebeta.price_ticks pt
+                    JOIN theeyebeta.instruments i ON i.id = pt.instrument_id
+                    WHERE UPPER(i.symbol) = UPPER(:ticker)
                     ORDER BY pt.ts DESC
                     LIMIT :limit
                     """
@@ -1447,60 +1346,3 @@ class SQLMarketDataRepository(MarketDataRepository):
         except SQLAlchemyError as exc:
             logger.exception("get_price_ticks failed")
             raise DatabaseUnavailableError("Unable to fetch price ticks") from exc
-
-    def enqueue_internal_job(
-        self,
-        *,
-        operator_subject: str,
-        command_type: str,
-        params: dict[str, Any],
-    ) -> InternalJobReceipt:
-        try:
-            command_id = str(uuid.uuid4())
-            row = self._session.execute(
-                text(
-                    """
-                    INSERT INTO trask_command_log (
-                        command_id,
-                        command_type,
-                        target_type,
-                        target_id,
-                        operator_id,
-                        status,
-                        params,
-                        created_at
-                    )
-                    VALUES (
-                        :command_id,
-                        :command_type,
-                        'internal_job',
-                        :target_id,
-                        :operator_id,
-                        'accepted',
-                        CAST(:params AS JSONB),
-                        NOW()
-                    )
-                    RETURNING command_id::text AS command_id, status, created_at
-                    """
-                ),
-                {
-                    "command_id": command_id,
-                    "command_type": command_type,
-                    "target_id": command_type,
-                    "operator_id": operator_subject,
-                    "params": json.dumps(params),
-                },
-            ).mappings().first()
-            self._session.commit()
-            if not row:
-                raise DatabaseUnavailableError("Job enqueue did not return command metadata")
-            return InternalJobReceipt(
-                command_id=str(row["command_id"]),
-                status=str(row["status"]),
-                command_type=command_type,
-                created_at=_to_datetime(row.get("created_at")),
-            )
-        except SQLAlchemyError as exc:
-            self._session.rollback()
-            logger.exception("enqueue_internal_job failed")
-            raise DatabaseUnavailableError("Unable to enqueue internal job") from exc
