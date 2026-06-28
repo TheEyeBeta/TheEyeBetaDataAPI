@@ -8,6 +8,7 @@ from typing import Any, Protocol
 from app.domain.models import (
     AdminAuditEvent,
     BalanceSheetQ,
+    CapEvent,
     CashFlowQ,
     CompanyFundamentals,
     CorporateAction,
@@ -16,6 +17,9 @@ from app.domain.models import (
     EngineStatusEntry,
     EtlJobState,
     Exchange,
+    FixedIncomeCurveMetric,
+    FixedIncomeETFProxyPrice,
+    FixedIncomeSignal,
     Industry,
     IncomeStatementQ,
     MacroLatestPoint,
@@ -31,6 +35,7 @@ from app.domain.models import (
     ReturnsDay,
     RiskDay,
     Sector,
+    SectorDaily,
     SignalRecord,
     TechnicalDay,
     TickerDetail,
@@ -38,6 +43,7 @@ from app.domain.models import (
     TickerSnapshot,
     TickerSummary,
     TradingCalendarDay,
+    UniverseCapEntry,
     ValuationDay,
 )
 
@@ -203,6 +209,19 @@ class MarketDataRepository(Protocol):
     def get_price_ticks(self, ticker: str, limit: int = 100) -> list[PriceTick]:
         """Return recent price ticks for a ticker."""
 
+    # ── Sector / universe ───────────────────────────────────────────────────
+
+    def get_sector_daily(self, sector: str | None = None, limit: int = 252) -> list[SectorDaily]:
+        """Return sector_daily rows, optionally filtered to one sector."""
+
+    def get_universe_active(
+        self, min_market_cap: float = 500_000_000, limit: int = 200
+    ) -> list[UniverseCapEntry]:
+        """Return the latest market_cap_daily row per symbol above the cap floor, ranked by market cap desc."""
+
+    def get_cap_events(self, since: date | None = None, limit: int = 100) -> list[CapEvent]:
+        """Return audit_cap_events rows, most recent first."""
+
 
 class MacroRepository(Protocol):
     """Read-oriented macro indicator / regime repository contract."""
@@ -227,3 +246,30 @@ class MacroRepository(Protocol):
 
     def get_latest_regime(self) -> MacroRegimeSnapshot | None:
         """Return the latest macro regime snapshot, or None when empty."""
+
+
+class FixedIncomeRepository(Protocol):
+    """Read-oriented fixed-income regime repository contract."""
+
+    def get_latest_metric(self, country: str = "US") -> FixedIncomeCurveMetric | None:
+        """Return the latest fixed-income curve metric row."""
+
+    def get_history(
+        self,
+        country: str = "US",
+        start: date | None = None,
+        end: date | None = None,
+        limit: int = 252,
+    ) -> list[FixedIncomeCurveMetric]:
+        """Return fixed-income metric history, most recent first."""
+
+    def get_signals(
+        self,
+        country: str = "US",
+        as_of_date: date | None = None,
+        limit: int = 50,
+    ) -> list[FixedIncomeSignal]:
+        """Return fixed-income signals, optionally constrained to one date."""
+
+    def get_etf_proxy_prices(self) -> list[FixedIncomeETFProxyPrice]:
+        """Return latest ETF proxy prices when available."""

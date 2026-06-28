@@ -501,3 +501,112 @@ class MacroRegimeSnapshot:
     cpi_surprise: float | None
     cpi_yoy_pct: float | None
     gdp_qoq_pct: float | None
+
+
+@dataclass(frozen=True)
+class FixedIncomeCurveMetric:
+    """Derived fixed-income curve metric row."""
+
+    date: date
+    country: str
+    currency: str | None
+    y_1mo: float | None
+    y_3mo: float | None
+    y_6mo: float | None
+    y_1y: float | None
+    y_2y: float | None
+    y_5y: float | None
+    y_10y: float | None
+    y_20y: float | None
+    y_30y: float | None
+    spread_10y_2y: float | None
+    spread_10y_3m: float | None
+    spread_30y_5y: float | None
+    real_yield_10y: float | None
+    high_yield_spread: float | None
+    ig_corp_spread: float | None
+    y_2y_change_5d: float | None
+    y_10y_change_5d: float | None
+    y_30y_change_5d: float | None
+    y_2y_change_20d: float | None
+    y_10y_change_20d: float | None
+    y_30y_change_20d: float | None
+    y_10y_volatility_20d: float | None
+    curve_regime: str | None
+    rate_regime: str | None
+    credit_regime: str | None
+    bond_environment_score: int | None
+    bond_environment_label: str | None
+    source: str | None
+    computed_at: datetime | None
+
+
+@dataclass(frozen=True)
+class FixedIncomeSignal:
+    """Derived fixed-income signal row."""
+
+    date: date
+    country: str
+    signal_name: str
+    value: float | None
+    strength: str
+    direction: str
+    interpretation: str
+    created_at: datetime | None
+
+
+@dataclass(frozen=True)
+class FixedIncomeETFProxyPrice:
+    """Latest fixed-income ETF proxy price."""
+
+    symbol: str
+    name: str | None
+    date: date
+    close: float | None
+    change_1d_pct: float | None
+    source: str | None
+
+
+@dataclass(frozen=True)
+class SectorDaily:
+    """Domain-level sector aggregate for one trading day."""
+
+    sector: str
+    as_of_date: date
+    n_instruments: int
+    avg_return_1d: float | None
+    avg_return_5d: float | None
+    avg_return_30d: float | None
+    median_rsi_14: float | None
+    pct_above_sma_50: float | None
+    pct_above_sma_200: float | None
+    rel_strength_spx_30d: float | None
+    rotation_rank: int | None
+    volume_ratio_20d: float | None
+    top_contributors: list[Any]
+
+
+@dataclass(frozen=True)
+class UniverseCapEntry:
+    """Domain-level cap-ranked universe row (latest market_cap_daily per symbol)."""
+
+    symbol: str
+    as_of_date: date
+    market_cap: float
+    close_price: float | None
+    shares_outstanding: int | None
+    source: str | None
+
+
+@dataclass(frozen=True)
+class CapEvent:
+    """Domain-level universe cap-tier transition event."""
+
+    id: int
+    trade_date: date
+    symbol: str
+    event_type: str
+    market_cap: float | None
+    prior_market_cap: float | None
+    action_required: str | None
+    universe_updated: bool

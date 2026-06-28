@@ -21,7 +21,7 @@ if ! command -v cloudflared >/dev/null 2>&1; then
 fi
 
 log "Linking DNS hostnames to tunnel $TUNNEL_NAME"
-for host in api.theeyebeta.store dataapi.theeyebeta.store; do
+for host in api.theeyebeta.store dataapi.theeyebeta.store dataapiprod.theeyebeta.store; do
   if cloudflared tunnel route dns -f "$TUNNEL_NAME" "$host" >>"$LOG_DIR/sync-tunnel.log" 2>&1; then
     log "  DNS OK: $host"
   else
@@ -109,7 +109,7 @@ else
 fi
 
 log "Verifying tunnel endpoints"
-for url in https://api.theeyebeta.store/health https://dataapi.theeyebeta.store/health; do
+for url in https://api.theeyebeta.store/health https://dataapi.theeyebeta.store/health https://dataapiprod.theeyebeta.store/health; do
   if curl -sf --max-time 15 "$url" >/dev/null; then
     log "  OK $url"
   else

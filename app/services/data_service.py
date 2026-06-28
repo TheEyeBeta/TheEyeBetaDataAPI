@@ -28,6 +28,8 @@ BASIC_DATA_TABLES: frozenset[str] = frozenset(
         "fund_income_q",
         "fundamentals",
         "fundamentals_company",
+        "fixed_income_curve_metrics",
+        "fixed_income_signals",
         "holidays",
         "ind_risk_daily",
         "ind_technical_daily",

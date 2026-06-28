@@ -10,6 +10,8 @@ from app.schemas.market import (
     AnalyticsSnapshotResponse,
     BalanceSheetsResponse,
     BalanceSheetResponse,
+    CapEventResponse,
+    CapEventsResponse,
     CashFlowsResponse,
     CashFlowResponse,
     CompanyFundamentalsResponse,
@@ -42,6 +44,8 @@ from app.schemas.market import (
     ReturnsSnapshotResponse,
     RiskDayResponse,
     RiskIndicatorsResponse,
+    SectorDailyEntryResponse,
+    SectorDailyResponse,
     SectorResponse,
     SectorsResponse,
     SymbolSearchResponse,
@@ -53,6 +57,8 @@ from app.schemas.market import (
     TickerNewsResponse,
     TradingCalendarDayResponse,
     TradingCalendarResponse,
+    UniverseActiveResponse,
+    UniverseCapEntryResponse,
     ValuationDayResponse,
     ValuationIndicatorsResponse,
     WorkerHeartbeatResponse,
@@ -264,6 +270,66 @@ class MarketDataService:
         return PriceTicksResponse(
             ticker=ticker.upper(),
             ticks=[PriceTickResponse(tick_id=t.tick_id, ts=t.ts, price=t.price, open=t.open, high=t.high, low=t.low, close=t.close, volume=t.volume, source=t.source) for t in items],
+        )
+
+    # ── Sector / universe ──────────────────────────────────────────────────────
+
+    def get_sector_daily(self, sector: str | None, limit: int) -> SectorDailyResponse:
+        items = self._repository.get_sector_daily(sector=sector, limit=limit)
+        return SectorDailyResponse(
+            sectors=[
+                SectorDailyEntryResponse(
+                    sector=s.sector,
+                    as_of_date=s.as_of_date,
+                    n_instruments=s.n_instruments,
+                    avg_return_1d=s.avg_return_1d,
+                    avg_return_5d=s.avg_return_5d,
+                    avg_return_30d=s.avg_return_30d,
+                    median_rsi_14=s.median_rsi_14,
+                    pct_above_sma_50=s.pct_above_sma_50,
+                    pct_above_sma_200=s.pct_above_sma_200,
+                    rel_strength_spx_30d=s.rel_strength_spx_30d,
+                    rotation_rank=s.rotation_rank,
+                    volume_ratio_20d=s.volume_ratio_20d,
+                    top_contributors=s.top_contributors,
+                )
+                for s in items
+            ],
+        )
+
+    def get_universe_active(self, min_market_cap: float, limit: int) -> UniverseActiveResponse:
+        items = self._repository.get_universe_active(min_market_cap=min_market_cap, limit=limit)
+        return UniverseActiveResponse(
+            as_of_date=items[0].as_of_date if items else None,
+            entries=[
+                UniverseCapEntryResponse(
+                    symbol=u.symbol,
+                    as_of_date=u.as_of_date,
+                    market_cap=u.market_cap,
+                    close_price=u.close_price,
+                    shares_outstanding=u.shares_outstanding,
+                    source=u.source,
+                )
+                for u in items
+            ],
+        )
+
+    def get_cap_events(self, since: date | None, limit: int) -> CapEventsResponse:
+        items = self._repository.get_cap_events(since=since, limit=limit)
+        return CapEventsResponse(
+            events=[
+                CapEventResponse(
+                    id=c.id,
+                    trade_date=c.trade_date,
+                    symbol=c.symbol,
+                    event_type=c.event_type,
+                    market_cap=c.market_cap,
+                    prior_market_cap=c.prior_market_cap,
+                    action_required=c.action_required,
+                    universe_updated=c.universe_updated,
+                )
+                for c in items
+            ],
         )
 
     def get_worker_heartbeats(self) -> WorkerHeartbeatsResponse:

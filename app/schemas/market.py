@@ -521,3 +521,54 @@ class WorkerHeartbeatResponse(BaseModel):
 
 class WorkerHeartbeatsResponse(BaseModel):
     workers: list[WorkerHeartbeatResponse]
+
+
+# ── Sector / universe ─────────────────────────────────────────────────────────
+
+class SectorDailyEntryResponse(BaseModel):
+    sector: str
+    as_of_date: date
+    n_instruments: int
+    avg_return_1d: float | None = None
+    avg_return_5d: float | None = None
+    avg_return_30d: float | None = None
+    median_rsi_14: float | None = None
+    pct_above_sma_50: float | None = None
+    pct_above_sma_200: float | None = None
+    rel_strength_spx_30d: float | None = None
+    rotation_rank: int | None = None
+    volume_ratio_20d: float | None = None
+    top_contributors: list[Any] = Field(default_factory=list)
+
+
+class SectorDailyResponse(BaseModel):
+    sectors: list[SectorDailyEntryResponse]
+
+
+class UniverseCapEntryResponse(BaseModel):
+    symbol: str
+    as_of_date: date
+    market_cap: float
+    close_price: float | None = None
+    shares_outstanding: int | None = None
+    source: str | None = None
+
+
+class UniverseActiveResponse(BaseModel):
+    as_of_date: date | None = None
+    entries: list[UniverseCapEntryResponse]
+
+
+class CapEventResponse(BaseModel):
+    id: int
+    trade_date: date
+    symbol: str
+    event_type: str
+    market_cap: float | None = None
+    prior_market_cap: float | None = None
+    action_required: str | None = None
+    universe_updated: bool
+
+
+class CapEventsResponse(BaseModel):
+    events: list[CapEventResponse]

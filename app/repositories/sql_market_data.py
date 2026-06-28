@@ -14,6 +14,7 @@ from app.domain.errors import DatabaseUnavailableError, ValidationAppError
 from app.domain.models import (
     AdminAuditEvent,
     BalanceSheetQ,
+    CapEvent,
     CashFlowQ,
     CompanyFundamentals,
     CorporateAction,
@@ -33,6 +34,7 @@ from app.domain.models import (
     ReturnsDay,
     RiskDay,
     Sector,
+    SectorDaily,
     SignalRecord,
     TechnicalDay,
     TickerDetail,
@@ -40,6 +42,7 @@ from app.domain.models import (
     TickerSnapshot,
     TickerSummary,
     TradingCalendarDay,
+    UniverseCapEntry,
     ValuationDay,
 )
 from app.repositories.interfaces import MarketDataRepository
@@ -777,11 +780,17 @@ class SQLMarketDataRepository(MarketDataRepository):
             rows = self._session.execute(
                 text(
                     f"""
-                    SELECT p.ts::date AS date, p.open, p.high, p.low, p.close, p.adj_close, p.volume, p.vwap
-                    FROM theeyebeta.prices_daily p
-                    JOIN theeyebeta.instruments i ON i.id = p.instrument_id
-                    WHERE {where}
-                    ORDER BY p.ts DESC
+                    SELECT date, open, high, low, close, adj_close, volume, vwap
+                    FROM (
+                        SELECT DISTINCT ON (p.ts::date)
+                               p.ts::date AS date, p.open, p.high, p.low,
+                               p.close, p.adj_close, p.volume, p.vwap
+                        FROM theeyebeta.prices_daily p
+                        JOIN theeyebeta.instruments i ON i.id = p.instrument_id
+                        WHERE {where}
+                        ORDER BY p.ts::date, p.ts DESC
+                    ) deduped
+                    ORDER BY date DESC
                     LIMIT :limit
                     """  # noqa: S608
                 ),
@@ -1346,3 +1355,117 @@ class SQLMarketDataRepository(MarketDataRepository):
         except SQLAlchemyError as exc:
             logger.exception("get_price_ticks failed")
             raise DatabaseUnavailableError("Unable to fetch price ticks") from exc
+
+    # ── Sector / universe ──────────────────────────────────────────────────────
+
+    def get_sector_daily(self, sector: str | None = None, limit: int = 252) -> list[SectorDaily]:
+        try:
+            where = "WHERE sector = :sector" if sector else ""
+            params: dict[str, Any] = {"limit": limit}
+            if sector:
+                params["sector"] = sector
+            rows = self._session.execute(
+                text(
+                    f"""
+                    SELECT sector, as_of_date, n_instruments, avg_return_1d, avg_return_5d, avg_return_30d,
+                           median_rsi_14, pct_above_sma_50, pct_above_sma_200, rel_strength_spx_30d,
+                           rotation_rank, volume_ratio_20d, top_contributors
+                    FROM theeyebeta.sector_daily
+                    {where}
+                    ORDER BY as_of_date DESC, rotation_rank ASC NULLS LAST
+                    LIMIT :limit
+                    """  # noqa: S608
+                ),
+                params,
+            ).mappings().all()
+            return [
+                SectorDaily(
+                    sector=str(r["sector"]),
+                    as_of_date=r["as_of_date"],
+                    n_instruments=int(r["n_instruments"]),
+                    avg_return_1d=_to_float(r.get("avg_return_1d")),
+                    avg_return_5d=_to_float(r.get("avg_return_5d")),
+                    avg_return_30d=_to_float(r.get("avg_return_30d")),
+                    median_rsi_14=_to_float(r.get("median_rsi_14")),
+                    pct_above_sma_50=_to_float(r.get("pct_above_sma_50")),
+                    pct_above_sma_200=_to_float(r.get("pct_above_sma_200")),
+                    rel_strength_spx_30d=_to_float(r.get("rel_strength_spx_30d")),
+                    rotation_rank=int(r["rotation_rank"]) if r.get("rotation_rank") is not None else None,
+                    volume_ratio_20d=_to_float(r.get("volume_ratio_20d")),
+                    top_contributors=list(r.get("top_contributors") or []),
+                )
+                for r in rows
+            ]
+        except SQLAlchemyError as exc:
+            logger.exception("get_sector_daily failed")
+            raise DatabaseUnavailableError("Unable to fetch sector daily data") from exc
+
+    def get_universe_active(self, min_market_cap: float = 500_000_000, limit: int = 200) -> list[UniverseCapEntry]:
+        try:
+            rows = self._session.execute(
+                text(
+                    """
+                    SELECT symbol, as_of_date, market_cap, close_price, shares_outstanding, source
+                    FROM (
+                        SELECT DISTINCT ON (symbol)
+                               symbol, as_of_date, market_cap, close_price, shares_outstanding, source
+                        FROM theeyebeta.market_cap_daily
+                        ORDER BY symbol, as_of_date DESC
+                    ) latest
+                    WHERE market_cap >= :min_cap
+                    ORDER BY market_cap DESC
+                    LIMIT :limit
+                    """
+                ),
+                {"min_cap": min_market_cap, "limit": limit},
+            ).mappings().all()
+            return [
+                UniverseCapEntry(
+                    symbol=str(r["symbol"]),
+                    as_of_date=r["as_of_date"],
+                    market_cap=float(r["market_cap"]),
+                    close_price=_to_float(r.get("close_price")),
+                    shares_outstanding=int(r["shares_outstanding"]) if r.get("shares_outstanding") is not None else None,
+                    source=str(r["source"]) if r.get("source") else None,
+                )
+                for r in rows
+            ]
+        except SQLAlchemyError as exc:
+            logger.exception("get_universe_active failed")
+            raise DatabaseUnavailableError("Unable to fetch universe cap data") from exc
+
+    def get_cap_events(self, since: date | None = None, limit: int = 100) -> list[CapEvent]:
+        try:
+            where = "WHERE trade_date >= :since" if since else ""
+            params: dict[str, Any] = {"limit": limit}
+            if since:
+                params["since"] = since
+            rows = self._session.execute(
+                text(
+                    f"""
+                    SELECT id, trade_date, symbol, event_type, market_cap, prior_market_cap,
+                           action_required, universe_updated
+                    FROM theeyebeta.audit_cap_events
+                    {where}
+                    ORDER BY trade_date DESC, id DESC
+                    LIMIT :limit
+                    """  # noqa: S608
+                ),
+                params,
+            ).mappings().all()
+            return [
+                CapEvent(
+                    id=int(r["id"]),
+                    trade_date=r["trade_date"],
+                    symbol=str(r["symbol"]),
+                    event_type=str(r["event_type"]),
+                    market_cap=_to_float(r.get("market_cap")),
+                    prior_market_cap=_to_float(r.get("prior_market_cap")),
+                    action_required=str(r["action_required"]) if r.get("action_required") else None,
+                    universe_updated=bool(r["universe_updated"]),
+                )
+                for r in rows
+            ]
+        except SQLAlchemyError as exc:
+            logger.exception("get_cap_events failed")
+            raise DatabaseUnavailableError("Unable to fetch cap events") from exc

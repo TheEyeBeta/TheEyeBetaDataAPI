@@ -10,6 +10,9 @@ ingress:
   - hostname: dataapi.theeyebeta.store
     service: http://127.0.0.1:7000
 
+  - hostname: dataapiprod.theeyebeta.store
+    service: http://127.0.0.1:7000
+
   - hostname: admin.theeyebeta.store
     service: http://127.0.0.1:7200
     originRequest:

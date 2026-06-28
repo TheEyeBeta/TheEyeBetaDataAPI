@@ -14,13 +14,15 @@ Cloudflare Edge (TLS)
 cloudflared tunnel "my-api"  (systemd: cloudflared.service)
    │
    ├── api.theeyebeta.store     → 127.0.0.1:8000  TheEyeBetaLocal Main API
-   ├── dataapi.theeyebeta.store → 127.0.0.1:7000  TheEyeBetaDataAPI
-   └── admin.theeyebeta.store   → 127.0.0.1:7200  TheEyeBetaProd admin service
+   ├── dataapi.theeyebeta.store     → 127.0.0.1:7000  TheEyeBetaDataAPI
+   ├── dataapiprod.theeyebeta.store → 127.0.0.1:7000  TheEyeBetaDataAPI (prod alias)
+   └── admin.theeyebeta.store       → 127.0.0.1:7200  TheEyeBetaProd admin service
 ```
 
 | Public URL | Local service | Repo |
 |---|---|---|
 | `https://dataapi.theeyebeta.store` | `127.0.0.1:7000` | TheEyeBetaDataAPI |
+| `https://dataapiprod.theeyebeta.store` | `127.0.0.1:7000` | TheEyeBetaDataAPI (prod alias) |
 | `https://api.theeyebeta.store` | `127.0.0.1:8000` | TheEyeBetaLocal |
 | `https://admin.theeyebeta.store` | `127.0.0.1:7200` | TheEyeBetaProd |
 
@@ -88,6 +90,7 @@ curl -s http://127.0.0.1:8090/health   # Trask
 
 ```bash
 curl -s https://dataapi.theeyebeta.store/health
+curl -s https://dataapiprod.theeyebeta.store/health
 curl -s https://api.theeyebeta.store/health
 ```
 
