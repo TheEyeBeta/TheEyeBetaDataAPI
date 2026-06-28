@@ -62,6 +62,8 @@ class FixedIncomeETFProxyPriceResponse(BaseModel):
 
     symbol: str
     name: str | None = None
+    proxy_type: str | None = None
+    issuer_type: str | None = None
     date: datetime.date
     close: float | None = None
     change_1d_pct: float | None = None

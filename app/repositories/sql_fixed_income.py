@@ -208,6 +208,24 @@ class SQLFixedIncomeRepository:
                         SELECT
                             i.symbol,
                             COALESCE(i.metadata->>'name', i.symbol) AS name,
+                            COALESCE(
+                                i.metadata->>'fixed_income_proxy_type',
+                                CASE
+                                    WHEN i.symbol = 'SHY' THEN 'short_treasury'
+                                    WHEN i.symbol = 'IEF' THEN 'intermediate_treasury'
+                                    WHEN i.symbol = 'TLT' THEN 'long_treasury'
+                                    WHEN i.symbol = 'TIP' THEN 'inflation_linked'
+                                    WHEN i.symbol IN ('BND', 'AGG') THEN 'aggregate_bond'
+                                END
+                            ) AS proxy_type,
+                            COALESCE(
+                                i.metadata->>'fixed_income_issuer_type',
+                                CASE
+                                    WHEN i.symbol IN ('SHY', 'IEF', 'TLT', 'TIP')
+                                        THEN 'government'
+                                    WHEN i.symbol IN ('BND', 'AGG') THEN 'aggregate'
+                                END
+                            ) AS issuer_type,
                             p.ts,
                             p.close,
                             p.source,
@@ -223,6 +241,8 @@ class SQLFixedIncomeRepository:
                     SELECT
                         latest.symbol,
                         latest.name,
+                        latest.proxy_type,
+                        latest.issuer_type,
                         latest.ts::date AS price_date,
                         latest.close,
                         latest.source,
@@ -242,6 +262,8 @@ class SQLFixedIncomeRepository:
                 FixedIncomeETFProxyPrice(
                     symbol=str(row["symbol"]),
                     name=str(row["name"]) if row.get("name") else None,
+                    proxy_type=str(row["proxy_type"]) if row.get("proxy_type") else None,
+                    issuer_type=str(row["issuer_type"]) if row.get("issuer_type") else None,
                     date=row["price_date"],
                     close=_to_float(row.get("close")),
                     change_1d_pct=_to_float(row.get("change_1d_pct")),

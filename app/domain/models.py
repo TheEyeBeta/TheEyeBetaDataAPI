@@ -561,6 +561,8 @@ class FixedIncomeETFProxyPrice:
 
     symbol: str
     name: str | None
+    proxy_type: str | None
+    issuer_type: str | None
     date: date
     close: float | None
     change_1d_pct: float | None

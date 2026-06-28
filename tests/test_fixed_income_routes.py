@@ -77,6 +77,8 @@ class _FakeFixedIncomeService:
                     FixedIncomeETFProxyPriceResponse(
                         symbol="TLT",
                         name="iShares 20+ Year Treasury Bond ETF",
+                        proxy_type="long_treasury",
+                        issuer_type="government",
                         date=date(2026, 6, 15),
                         close=90.12,
                         change_1d_pct=-0.42,
@@ -143,6 +145,7 @@ def test_fixed_income_regime_ok() -> None:
     assert payload["latest"]["bond_environment_label"] == "equity_hostile"
     assert payload["signals"][0]["signal_name"] == "curve_inversion"
     assert payload["etf_proxies"][0]["symbol"] == "TLT"
+    assert payload["etf_proxies"][0]["issuer_type"] == "government"
     app.dependency_overrides.clear()
 
 
