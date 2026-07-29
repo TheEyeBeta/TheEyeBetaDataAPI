@@ -16,6 +16,21 @@ class TickerSummary:
 
 
 @dataclass(frozen=True)
+class ResolvedSymbol:
+    """Canonical security-master match for an exact symbol."""
+
+    instrument_id: int
+    name: str
+    exchange: str
+    currency: str
+    isin: str | None
+    cusip: str | None
+    figi: str | None
+    asset_class: str
+    active: bool
+
+
+@dataclass(frozen=True)
 class MarketNewsItem:
     """Public market news item."""
 

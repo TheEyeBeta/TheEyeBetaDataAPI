@@ -32,6 +32,7 @@ from app.domain.models import (
     PriceDay,
     PriceTick,
     QualityQ,
+    ResolvedSymbol,
     ReturnsDay,
     RiskDay,
     Sector,
@@ -59,6 +60,9 @@ class MarketDataRepository(Protocol):
 
     def search_symbols(self, query: str, limit: int = 25) -> list[TickerSummary]:
         """Return symbol search results."""
+
+    def resolve_symbol(self, symbol: str) -> list[ResolvedSymbol]:
+        """Return up to two exact security-master matches for ambiguity detection."""
 
     def get_latest_snapshot(self, ticker: str) -> TickerSnapshot | None:
         """Return latest ticker snapshot or None."""

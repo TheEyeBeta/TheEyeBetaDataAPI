@@ -31,6 +31,7 @@ from app.domain.models import (
     PriceDay,
     PriceTick,
     QualityQ,
+    ResolvedSymbol,
     ReturnsDay,
     RiskDay,
     Sector,
@@ -170,6 +171,57 @@ class SQLMarketDataRepository(MarketDataRepository):
         except SQLAlchemyError as exc:
             logger.exception("search_symbols failed")
             raise DatabaseUnavailableError("Unable to search symbols") from exc
+
+    def resolve_symbol(self, symbol: str) -> list[ResolvedSymbol]:
+        """Return at most two exact matches so callers can reject ambiguous symbols."""
+        try:
+            rows = (
+                self._session.execute(
+                    text(
+                        """
+                        SELECT
+                            i.id AS instrument_id,
+                            COALESCE(
+                                NULLIF(BTRIM(i.metadata->>'company_name'), ''),
+                                NULLIF(BTRIM(i.metadata->>'name'), ''),
+                                i.symbol
+                            ) AS name,
+                            e.code AS exchange,
+                            e.currency_iso AS currency,
+                            i.isin,
+                            i.cusip,
+                            i.figi,
+                            i.asset_class,
+                            i.active
+                        FROM theeyebeta.instruments i
+                        JOIN theeyebeta.exchanges e ON e.id = i.exchange_id
+                        WHERE UPPER(i.symbol) = UPPER(:symbol)
+                        ORDER BY i.id
+                        LIMIT 2
+                        """
+                    ),
+                    {"symbol": symbol},
+                )
+                .mappings()
+                .all()
+            )
+            return [
+                ResolvedSymbol(
+                    instrument_id=int(row["instrument_id"]),
+                    name=str(row["name"]),
+                    exchange=str(row["exchange"]),
+                    currency=str(row["currency"]),
+                    isin=str(row["isin"]) if row.get("isin") else None,
+                    cusip=str(row["cusip"]) if row.get("cusip") else None,
+                    figi=str(row["figi"]) if row.get("figi") else None,
+                    asset_class=str(row["asset_class"]),
+                    active=bool(row["active"]),
+                )
+                for row in rows
+            ]
+        except SQLAlchemyError as exc:
+            logger.exception("resolve_symbol failed")
+            raise DatabaseUnavailableError("Unable to resolve symbol") from exc
 
     def get_latest_snapshot(self, ticker: str) -> TickerSnapshot | None:
         try:
