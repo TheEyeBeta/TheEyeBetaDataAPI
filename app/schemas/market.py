@@ -22,6 +22,20 @@ class SymbolSearchResponse(BaseModel):
     results: list[TickerSummaryResponse]
 
 
+class SymbolResolveResponse(BaseModel):
+    """One unambiguous security-master symbol match."""
+
+    instrument_id: int
+    name: str
+    exchange: str
+    currency: str
+    isin: str | None = None
+    cusip: str | None = None
+    figi: str | None = None
+    asset_class: str
+    active: bool
+
+
 class AnalyticsSnapshotResponse(BaseModel):
     """Analytics snapshot response."""
 

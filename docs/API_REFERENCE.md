@@ -250,6 +250,49 @@ curl -s "https://api.theeyebeta.store/api/v1/symbols/search?q=apple&limit=10" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
+### `GET /api/v1/symbols/resolve`
+
+Resolve one exact, case-insensitive symbol against the security master.
+
+**Scope:** `symbols:read`
+
+The request succeeds only when the normalized symbol identifies exactly one
+`theeyebeta.instruments` row. If the same symbol exists on more than one exchange, the endpoint
+returns `409 CONFLICT` instead of selecting a venue silently. A missing symbol returns
+`404 NOT FOUND`.
+
+**Query parameters**
+
+| Parameter | Type | Required | Constraints | Description |
+|---|---|---|---|---|
+| `symbol` | string | Yes | 1–64 chars | Exact symbol; surrounding whitespace is ignored and matching is case-insensitive |
+
+**Response**
+
+```json
+{
+  "instrument_id": 123,
+  "name": "Apple Inc.",
+  "exchange": "NASDAQ",
+  "currency": "USD",
+  "isin": null,
+  "cusip": null,
+  "figi": null,
+  "asset_class": "equity",
+  "active": true
+}
+```
+
+`exchange` is the canonical `exchanges.code`; `currency` is its ISO currency code. ISIN, CUSIP,
+and FIGI are nullable because the security-master columns are nullable.
+
+**Example**
+
+```bash
+curl -s "https://api.theeyebeta.store/api/v1/symbols/resolve?symbol=AAPL" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
 ---
 
 ## Tickers

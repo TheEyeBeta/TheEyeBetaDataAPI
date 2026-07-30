@@ -46,7 +46,7 @@ See **[docs/API_REFERENCE.md](docs/API_REFERENCE.md)** for the full endpoint ref
 | Health | — | `GET /health` |
 | Auth | — | `POST /api/v1/auth/service-token` |
 | Market Data | `market:read` | `GET /api/v1/market-data/quotes` |
-| Symbols | `symbols:read` | `GET /api/v1/symbols/search` |
+| Symbols | `symbols:read` | `GET /api/v1/symbols/search`, `GET /api/v1/symbols/resolve` |
 | Tickers | `market:read` / `analytics:read` | `GET /api/v1/tickers/{ticker}`, price-history, corporate-actions, fundamentals |
 | Financials | `analytics:read` | `GET /api/v1/financials/{ticker}/income\|balance\|cashflow\|quality` |
 | Indicators | `analytics:read` | `GET /api/v1/indicators/{ticker}/technical\|risk\|valuation\|returns` |

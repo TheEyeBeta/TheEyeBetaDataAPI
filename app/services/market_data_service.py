@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import date
 
+from app.domain.errors import ConflictAppError, NotFoundAppError, ValidationAppError
 from app.repositories.interfaces import MarketDataRepository
 from app.schemas.context import TickerSnapshotResponse, TickerSummaryResponse
 from app.schemas.market import (
@@ -48,6 +49,7 @@ from app.schemas.market import (
     SectorDailyResponse,
     SectorResponse,
     SectorsResponse,
+    SymbolResolveResponse,
     SymbolSearchResponse,
     TechnicalDayResponse,
     TechnicalIndicatorsResponse,
@@ -101,6 +103,33 @@ class MarketDataService:
         items = self._repository.search_symbols(query=query, limit=limit)
         return SymbolSearchResponse(
             results=[TickerSummaryResponse(ticker=item.ticker, company_name=item.company_name) for item in items]
+        )
+
+    def resolve_symbol(self, symbol: str) -> SymbolResolveResponse:
+        """Resolve an exact normalized symbol only when one canonical row exists."""
+        normalized_symbol = symbol.strip().upper()
+        if not normalized_symbol:
+            raise ValidationAppError("Symbol is required")
+
+        matches = self._repository.resolve_symbol(normalized_symbol)
+        if not matches:
+            raise NotFoundAppError(f"Symbol not found: {normalized_symbol}")
+        if len(matches) > 1:
+            raise ConflictAppError(
+                f"Symbol is ambiguous across exchanges: {normalized_symbol}"
+            )
+
+        item = matches[0]
+        return SymbolResolveResponse(
+            instrument_id=item.instrument_id,
+            name=item.name,
+            exchange=item.exchange,
+            currency=item.currency,
+            isin=item.isin,
+            cusip=item.cusip,
+            figi=item.figi,
+            asset_class=item.asset_class,
+            active=item.active,
         )
 
     def get_analytics_snapshot(self, ticker: str) -> AnalyticsSnapshotResponse:
