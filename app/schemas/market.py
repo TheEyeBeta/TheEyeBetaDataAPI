@@ -214,11 +214,6 @@ class PriceDayResponse(BaseModel):
     vwap: float | None = None
 
 
-class PriceHistoryResponse(BaseModel):
-    ticker: str
-    prices: list[PriceDayResponse]
-
-
 class CorporateActionResponse(BaseModel):
     action_id: int
     action_date: date | None = None
@@ -231,6 +226,13 @@ class CorporateActionResponse(BaseModel):
 class CorporateActionsResponse(BaseModel):
     ticker: str
     actions: list[CorporateActionResponse]
+
+
+class PriceHistoryResponse(BaseModel):
+    ticker: str
+    prices: list[PriceDayResponse]
+    adjustment: str = "none"
+    corporate_actions: list[CorporateActionResponse] = Field(default_factory=list)
 
 
 class CompanyFundamentalsResponse(BaseModel):
