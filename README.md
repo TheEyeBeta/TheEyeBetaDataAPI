@@ -76,6 +76,14 @@ python scripts/bootstrap_local_env.py \
 
 If running behind Cloudflare Tunnel, add `--trust-proxy-headers`.
 
+`.env` holds every runtime secret (`JWT_SECRET`, `DATABASE_URL`, `SERVICE_CLIENTS_JSON`,
+`ADMIN_ACCOUNT_APPROVAL_CODE`, ...) in one file. `bootstrap_local_env.py` and
+`rotate_secrets.py` both write it (and any `.env.bak.*` backup) with mode `600`
+(owner read/write only) automatically. If you ever hand-edit or copy `.env` by
+some other means, re-run `chmod 600 .env` — a `--user` systemd unit like
+`theeyebeta-dataapi` always runs as you, so 600 never breaks it. `.env.bak.*`
+is git-ignored; never `git add -f` one.
+
 **2. Install as a background service (starts on boot, restarts on crash):**
 
 ```bash

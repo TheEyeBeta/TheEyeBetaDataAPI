@@ -137,7 +137,8 @@ def main() -> int:
             f"{output_path.name}.bak.{dt.datetime.now(dt.UTC).strftime('%Y%m%d%H%M%S')}"
         )
         backup.write_text(output_path.read_text(encoding="utf-8"), encoding="utf-8")
-        print(f"Backed up existing {output_path} to {backup}")
+        backup.chmod(0o600)
+        print(f"Backed up existing {output_path} to {backup} (mode 600)")
 
     template_text = template_path.read_text(encoding="utf-8")
     values = _load_template_values(template_text)
@@ -160,9 +161,10 @@ def main() -> int:
 
     rendered = _render_env(template_text, values)
     output_path.write_text(rendered, encoding="utf-8")
+    output_path.chmod(0o600)
 
     client_list = ", ".join(client_ids) if client_ids else "(none)"
-    print(f"Wrote {output_path} with generated local secrets.")
+    print(f"Wrote {output_path} (mode 600) with generated local secrets.")
     print(f"Configured service clients: {client_list}")
     print("Next: run `bash scripts/run_local.sh`")
     return 0

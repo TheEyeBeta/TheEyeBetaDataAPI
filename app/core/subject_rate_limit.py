@@ -5,47 +5,68 @@ from __future__ import annotations
 import logging
 import time
 from collections import defaultdict, deque
+from collections.abc import Callable
 
-from fastapi import Request
+from fastapi import HTTPException, Request
 
 logger = logging.getLogger("dataapi.ratelimit")
 
-# Separate, tighter limits for admin operations.
-_ADMIN_WINDOW_SECONDS = 60
-_ADMIN_MAX_REQUESTS = 20
 
-_subject_hits: dict[str, deque[float]] = defaultdict(deque)
+_all_buckets: list[dict[str, deque[float]]] = []
 
 
-def require_admin_rate_limit(request: Request) -> None:
-    """FastAPI dependency: enforce per-subject rate limit on admin endpoints.
+def reset_rate_limits() -> None:
+    """Clear all rate-limit bucket state. Test-only; buckets are process-global."""
+    for buckets in _all_buckets:
+        buckets.clear()
 
-    Raises a JSONResponse (via HTTPException-style short-circuit) when the
-    authenticated subject exceeds 20 admin requests per minute.
+
+def _make_rate_limiter(*, label: str, window_seconds: int, max_requests: int) -> Callable[[Request], None]:
+    """Build a FastAPI dependency enforcing max_requests per subject per window_seconds.
+
+    Each limiter gets its own bucket store, so tightening one endpoint's limit
+    never starves requests to another endpoint sharing the same subject.
     """
-    subject = getattr(request.state, "auth_subject", None) or "anonymous"
-    now = time.time()
-    bucket = _subject_hits[subject]
+    buckets: dict[str, deque[float]] = defaultdict(deque)
+    _all_buckets.append(buckets)
 
-    while bucket and now - bucket[0] > _ADMIN_WINDOW_SECONDS:
-        bucket.popleft()
+    def _dependency(request: Request) -> None:
+        subject = getattr(request.state, "auth_subject", None) or "anonymous"
+        now = time.time()
+        bucket = buckets[subject]
 
-    if len(bucket) >= _ADMIN_MAX_REQUESTS:
-        request_id = getattr(request.state, "request_id", None)
-        logger.warning(
-            "admin_rate_limit_exceeded auth_subject=%s bucket_size=%d",
-            subject,
-            len(bucket),
-        )
-        from fastapi import HTTPException
-        raise HTTPException(
-            status_code=429,
-            detail={
-                "code": "RATE_LIMIT_EXCEEDED",
-                "message": "Admin rate limit exceeded (20 req/min per subject)",
-                "request_id": request_id,
-            },
-            headers={"Retry-After": "60"},
-        )
+        while bucket and now - bucket[0] > window_seconds:
+            bucket.popleft()
 
-    bucket.append(now)
+        if len(bucket) >= max_requests:
+            request_id = getattr(request.state, "request_id", None)
+            logger.warning(
+                "%s_rate_limit_exceeded auth_subject=%s bucket_size=%d",
+                label,
+                subject,
+                len(bucket),
+            )
+            raise HTTPException(
+                status_code=429,
+                detail={
+                    "code": "RATE_LIMIT_EXCEEDED",
+                    "message": f"{label} rate limit exceeded ({max_requests} req/{window_seconds}s per subject)",
+                    "request_id": request_id,
+                },
+                headers={"Retry-After": str(window_seconds)},
+            )
+
+        bucket.append(now)
+
+    return _dependency
+
+
+# Baseline limit for admin read/write endpoints.
+require_admin_rate_limit = _make_rate_limiter(label="admin", window_seconds=60, max_requests=20)
+
+# Account deletion also requires an approval code (see app/auth/account_approval.py);
+# this caps guess attempts against that code to 1/min per subject on top of the
+# baseline admin limit, regardless of code strength.
+require_account_delete_rate_limit = _make_rate_limiter(
+    label="account_delete", window_seconds=60, max_requests=1
+)
