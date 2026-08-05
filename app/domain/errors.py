@@ -61,3 +61,10 @@ class NotImplementedAppError(AppError):
 
     def __init__(self, message: str = "Capability not implemented") -> None:
         super().__init__(status_code=501, code="NOT_IMPLEMENTED", message=message)
+
+
+class ApprovalRequiredError(AppError):
+    """A destructive action requires a valid operator-supplied approval code."""
+
+    def __init__(self, message: str = "Approval code required or invalid") -> None:
+        super().__init__(status_code=403, code="APPROVAL_REQUIRED", message=message)
