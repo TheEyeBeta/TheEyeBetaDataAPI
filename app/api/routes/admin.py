@@ -3,15 +3,17 @@
 from __future__ import annotations
 
 import logging
+import uuid
 
-from fastapi import APIRouter, Depends, Path, Query, Request
+from fastapi import APIRouter, Depends, Path, Query, Request, status
 from fastapi.responses import HTMLResponse, JSONResponse
 
-from app.api.dependencies.services import get_admin_service, get_market_data_service
+from app.api.dependencies.services import get_account_service, get_admin_service, get_market_data_service
 from app.auth.dependencies import require_scopes
-from app.auth.scopes import SCOPE_ADMIN_READ
+from app.auth.scopes import SCOPE_ADMIN_READ, SCOPE_ADMIN_WRITE
 from app.core.subject_rate_limit import require_admin_rate_limit
 from app.repositories.sql_market_data import CURATED_QUERY_NAMES
+from app.schemas.accounts import AccountResponse, CreateAccountRequest, DeleteAccountRequest
 from app.schemas.market import (
     AdminAuditEventsResponse,
     EngineStatusResponse,
@@ -19,6 +21,7 @@ from app.schemas.market import (
     PriceTicksResponse,
     WorkerHeartbeatsResponse,
 )
+from app.services.account_service import AccountService
 from app.services.admin_service import AdminService
 from app.services.market_data_service import MarketDataService
 
@@ -77,6 +80,55 @@ def list_named_queries(
 ) -> JSONResponse:
     """Return the list of available curated query names."""
     return JSONResponse(content={"queries": sorted(CURATED_QUERY_NAMES)})
+
+
+@router.post("/accounts", response_model=AccountResponse, status_code=status.HTTP_201_CREATED)
+def create_account(
+    body: CreateAccountRequest,
+    request: Request,
+    _=Depends(require_scopes([SCOPE_ADMIN_WRITE])),
+    _rl=Depends(require_admin_rate_limit),
+    service: AccountService = Depends(get_account_service),
+) -> AccountResponse:
+    """Create a new end-user account (iam.users)."""
+    actor_subject = getattr(request.state, "auth_subject", "unknown")
+    result = service.create_account(
+        email=body.email,
+        display_name=body.display_name,
+        organization=body.organization,
+        plan=body.plan,
+        actor_subject=actor_subject,
+    )
+    return AccountResponse(**result)
+
+
+@router.delete("/accounts/{user_uuid}", response_model=AccountResponse)
+def delete_account(
+    body: DeleteAccountRequest,
+    request: Request,
+    user_uuid: uuid.UUID = Path(...),
+    _=Depends(require_scopes([SCOPE_ADMIN_WRITE])),
+    _rl=Depends(require_admin_rate_limit),
+    service: AccountService = Depends(get_account_service),
+) -> AccountResponse:
+    """Deactivate an end-user account. Requires a valid operator approval code.
+
+    This is a soft delete: iam.users.is_active is set to false, which triggers
+    automatic revocation of the account's API keys. Nothing is hard-deleted.
+    """
+    actor_subject = getattr(request.state, "auth_subject", "unknown")
+    logger.warning(
+        "admin_account_delete_attempt auth_subject=%s user_uuid=%s",
+        actor_subject,
+        user_uuid,
+    )
+    result = service.delete_account(
+        user_uuid=str(user_uuid),
+        approval_code=body.approval_code,
+        actor_subject=actor_subject,
+        reason=body.reason,
+    )
+    return AccountResponse(**result)
 
 
 @router.get("/etl-jobs", response_model=EtlJobStatesResponse)

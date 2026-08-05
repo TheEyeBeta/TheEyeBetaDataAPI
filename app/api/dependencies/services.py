@@ -13,6 +13,7 @@ from app.repositories.sql_data import SQLReadOnlyDataRepository
 from app.repositories.sql_fixed_income import SQLFixedIncomeRepository
 from app.repositories.sql_macro import SQLMacroRepository
 from app.repositories.sql_market_data import SQLMarketDataRepository
+from app.services.account_service import AccountService
 from app.services.admin_service import AdminService
 from app.services.advisor_service import AdvisorService
 from app.services.data_service import DataService
@@ -83,6 +84,11 @@ def get_portfolio_service(repository: MarketDataRepository = Depends(get_market_
 def get_admin_service(repository: MarketDataRepository = Depends(get_market_data_repository)) -> AdminService:
     """Provide admin service."""
     return AdminService(repository=repository)
+
+
+def get_account_service(session: Session = Depends(get_session)) -> AccountService:
+    """Provide account lifecycle service."""
+    return AccountService(session)
 
 
 def get_macro_service(repository: MacroRepository = Depends(get_macro_repository)) -> MacroService:

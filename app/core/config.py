@@ -52,6 +52,12 @@ class Settings(BaseSettings):
     trusted_hosts: str = "localhost,127.0.0.1"
     trust_proxy_headers: bool = False
 
+    # Operator-supplied code word required to deactivate an end-user account
+    # via the admin API. Never committed; set per-environment. Unset means the
+    # delete endpoint fails closed (returns 403) rather than silently allowing
+    # deletes with no gate.
+    admin_account_approval_code: str | None = None
+
     @field_validator("environment")
     @classmethod
     def validate_environment(cls, value: str) -> str:

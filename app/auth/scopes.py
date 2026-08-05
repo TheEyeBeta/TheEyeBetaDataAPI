@@ -13,6 +13,7 @@ SCOPE_SIGNALS_READ = "signals:read"
 SCOPE_PORTFOLIO_READ = "portfolio:read"
 SCOPE_ADMIN_ALL = "admin:*"
 SCOPE_ADMIN_READ = "admin:read"
+SCOPE_ADMIN_WRITE = "admin:write"
 
 
 def _scope_matches(granted: str, required: str) -> bool:
