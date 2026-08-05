@@ -37,6 +37,13 @@ jobs:
     needs: test
     runs-on: self-hosted
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    env:
+      # theeyebeta-dataapi is a --user unit, so every systemctl/journalctl call in
+      # this job needs --user + a reachable user D-Bus session. The self-hosted
+      # runner is a system-level service (see scripts/install_service.sh's
+      # comment on why the *app* unit isn't), so its job steps don't inherit
+      # this automatically even though linger is enabled for this user.
+      XDG_RUNTIME_DIR: /run/user/1000
 
     steps:
       - name: Checkout repository
