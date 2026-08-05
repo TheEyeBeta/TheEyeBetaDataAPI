@@ -22,5 +22,12 @@ def require_account_approval(provided_code: str | None) -> None:
             "set ADMIN_ACCOUNT_APPROVAL_CODE to enable this action."
         )
 
-    if not provided_code or not hmac.compare_digest(provided_code.strip(), expected.strip()):
+    if not provided_code:
+        raise ApprovalRequiredError("Invalid or missing approval code.")
+
+    # Compare as UTF-8 bytes: hmac.compare_digest raises TypeError on non-ASCII
+    # str input, which would otherwise surface as a 500 instead of a clean 403.
+    provided_bytes = provided_code.strip().encode("utf-8")
+    expected_bytes = expected.strip().encode("utf-8")
+    if not hmac.compare_digest(provided_bytes, expected_bytes):
         raise ApprovalRequiredError("Invalid or missing approval code.")

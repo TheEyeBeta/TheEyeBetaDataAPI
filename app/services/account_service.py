@@ -79,7 +79,7 @@ class AccountService:
             self._session.rollback()
             raise DatabaseUnavailableError("Unable to create account") from exc
 
-        logger.warning("admin_account_created auth_subject=%s email=%s", actor_subject, row["email"])
+        logger.warning("admin_account_created auth_subject=%s user_uuid=%s", actor_subject, row["user_uuid"])
         return dict(row)
 
     def delete_account(
@@ -124,12 +124,7 @@ class AccountService:
             self._session.rollback()
             raise DatabaseUnavailableError("Unable to delete account") from exc
 
-        logger.warning(
-            "admin_account_deleted auth_subject=%s user_uuid=%s reason=%s",
-            actor_subject,
-            row["user_uuid"],
-            reason or "",
-        )
+        logger.warning("admin_account_deleted auth_subject=%s user_uuid=%s", actor_subject, row["user_uuid"])
         return dict(row)
 
     def _log_event(self, *, user_uuid: str, event_type: str, actor_subject: str, payload: dict) -> None:

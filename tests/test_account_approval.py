@@ -46,3 +46,9 @@ def test_accepts_matching_code() -> None:
 def test_accepts_matching_code_with_surrounding_whitespace() -> None:
     settings.admin_account_approval_code = "correct-horse-battery-staple"
     require_account_approval("  correct-horse-battery-staple  ")
+
+
+def test_rejects_non_ascii_code_cleanly_instead_of_crashing() -> None:
+    settings.admin_account_approval_code = "correct-horse-battery-staple"
+    with pytest.raises(ApprovalRequiredError, match="Invalid or missing"):
+        require_account_approval("wrong-ééé-code")
