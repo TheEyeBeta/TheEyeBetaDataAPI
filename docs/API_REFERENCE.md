@@ -77,6 +77,7 @@ Each endpoint requires one of the following scopes. A token is only granted the 
 | `advisor:read` | AI advisor chat and context |
 | `portfolio:read` | Portfolio state |
 | `admin:read` | Admin dashboard, audit events, ETL status, named queries, all table reads |
+| `admin:write` | Create/deactivate end-user accounts. Separate from `admin:read` — one does not imply the other. |
 | `admin:*` | All admin scopes (wildcard) |
 
 ---
@@ -360,6 +361,7 @@ Daily OHLCV price history for a ticker.
 | `start` | date (`YYYY-MM-DD`) | No | — | — | Start date inclusive |
 | `end` | date (`YYYY-MM-DD`) | No | — | — | End date inclusive |
 | `limit` | integer | No | `252` | 1–2000 | Max rows (applied after date filter) |
+| `adjust` | string | No | `none` | `none` \| `splits_dividends` | `none`: raw OHLC, unchanged. `splits_dividends`: rescales OHLC by the stored `adj_close/close` ratio and populates `corporate_actions`. A splits-only mode isn't offered — only the combined split+dividend adjustment is stored upstream. |
 
 **Response**
 
@@ -377,14 +379,24 @@ Daily OHLCV price history for a ticker.
       "volume": 54312000,
       "vwap": 189.01
     }
-  ]
+  ],
+  "adjustment": "none",
+  "corporate_actions": []
 }
 ```
+
+`adjustment` echoes back the requested `adjust` value. `corporate_actions` is
+populated (same shape as `GET /{ticker}/corporate-actions`) only when
+`adjust=splits_dividends`; otherwise it's `[]`.
 
 **Example**
 
 ```bash
 curl -s "https://api.theeyebeta.store/api/v1/tickers/AAPL/price-history?start=2025-01-01&limit=90" \
+  -H "Authorization: Bearer $TOKEN"
+
+# Split/dividend-adjusted, with the corporate actions that drove the adjustment
+curl -s "https://api.theeyebeta.store/api/v1/tickers/AAPL/price-history?adjust=splits_dividends" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -1295,7 +1307,10 @@ curl -s "https://api.theeyebeta.store/api/v1/data/tables/latest_snapshots/rows?s
 
 ## Admin
 
-All admin endpoints require `admin:read` scope. The HTML dashboard page is the only exception — it is served without auth (auth is handled client-side via token input in the UI).
+All admin endpoints require `admin:read` scope, except account creation/deletion
+below which require `admin:write` (a separate, non-overlapping scope — `admin:read`
+does not grant it). The HTML dashboard page is the only unauthenticated exception
+(auth is handled client-side via token input in the UI).
 
 ---
 
@@ -1524,4 +1539,99 @@ Recent intraday price tick records for a ticker (raw ingestion data).
 ```bash
 curl -s "https://api.theeyebeta.store/api/v1/admin/price-ticks/AAPL?limit=10" \
   -H "Authorization: Bearer $ADMIN_TOKEN"
+```
+
+---
+
+### `POST /api/v1/admin/accounts`
+
+Create an end-user account (`iam.users`).
+
+**Scope:** `admin:write`
+
+**Request body**
+
+| Field | Type | Required | Default | Constraints | Description |
+|---|---|---|---|---|---|
+| `email` | string | Yes | — | 3–320 chars, must contain `@` | Account email (stored lowercased) |
+| `display_name` | string | No | — | max 200 chars | Display name |
+| `organization` | string | No | — | max 200 chars | Organization name |
+| `plan` | string | No | `free` | `free` \| `starter` \| `pro` \| `enterprise` | Billing plan tier |
+
+**Response** — `201 Created`
+
+```json
+{
+  "user_uuid": "b6f0c1a2-...",
+  "email": "new.user@example.com",
+  "display_name": "New User",
+  "organization": null,
+  "plan": "free",
+  "is_active": true,
+  "created_at": "2026-08-05T07:00:00Z"
+}
+```
+
+`409 CONFLICT` if the email already has an account.
+
+**Example**
+
+```bash
+curl -s -X POST "https://api.theeyebeta.store/api/v1/admin/accounts" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"email":"new.user@example.com","plan":"free"}'
+```
+
+---
+
+### `DELETE /api/v1/admin/accounts/{user_uuid}`
+
+Deactivate an end-user account. This is a **soft delete**
+(`iam.users.is_active = false`) — it automatically revokes the account's API
+keys via an existing DB trigger. Nothing is hard-deleted.
+
+**Scope:** `admin:write`
+
+**Path parameters**
+
+| Parameter | Description |
+|---|---|
+| `user_uuid` | Account UUID |
+
+**Request body**
+
+| Field | Type | Required | Constraints | Description |
+|---|---|---|---|---|
+| `approval_code` | string | Yes | 1–200 chars | Operator approval code word |
+| `reason` | string | No | max 500 chars | Free-text audit note |
+
+**Approval gate:** the server must have `ADMIN_ACCOUNT_APPROVAL_CODE` configured,
+and `approval_code` must match it exactly (`hmac.compare_digest`-checked, UTF-8
+byte comparison). If the server has no code configured, or the wrong code is
+supplied, this always returns `403 APPROVAL_REQUIRED` — it never silently
+deletes. This endpoint is additionally rate-limited to **1 request/minute per
+subject**, tighter than the general 20/min admin limit, since the approval
+code alone doesn't stop an already-authenticated `admin:write` caller from
+guessing a short code within a looser limit.
+
+**Response** — `200 OK`
+
+```json
+{
+  "user_uuid": "b6f0c1a2-...",
+  "email": "new.user@example.com",
+  "is_active": false
+}
+```
+
+`404 NOT_FOUND` if no active account exists with that UUID.
+
+**Example**
+
+```bash
+curl -s -X DELETE "https://api.theeyebeta.store/api/v1/admin/accounts/b6f0c1a2-..." \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"approval_code":"<operator-code>","reason":"user requested deletion"}'
 ```

@@ -13,9 +13,16 @@ TMUX_LOG_FILE="${TMUX_LOG_DIR}/${TMUX_SESSION}.log"
 
 log() { echo "[deploy] $(date '+%Y-%m-%d %H:%M:%S') $*"; }
 
+# theeyebeta-dataapi is a --user systemd unit, not a system one (see
+# ~/.config/systemd/user/theeyebeta-dataapi.service). A plain `systemctl`
+# call (no --user) always reports it as not-found, even when it's running.
+# XDG_RUNTIME_DIR is set defensively since a CI-invoked, non-interactive
+# process may not inherit it the way an interactive login shell does.
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+
 service_exists() {
     local load_state
-    load_state="$(systemctl show -p LoadState --value "$SERVICE_NAME" 2>/dev/null || true)"
+    load_state="$(systemctl --user show -p LoadState --value "$SERVICE_NAME" 2>/dev/null || true)"
     [ -n "$load_state" ] && [ "$load_state" != "not-found" ]
 }
 
@@ -51,13 +58,8 @@ else
 fi
 
 if service_exists; then
-    if ! sudo -n true >/dev/null 2>&1; then
-        log "ERROR: systemd service '$SERVICE_NAME' exists, but passwordless sudo is not configured for the runner user."
-        exit 1
-    fi
-
-    log "Restarting service via systemd..."
-    sudo systemctl restart "$SERVICE_NAME"
+    log "Restarting service via systemd (--user)..."
+    systemctl --user restart "$SERVICE_NAME"
 else
     restart_via_tmux
 fi
@@ -73,5 +75,5 @@ for i in $(seq 1 $HEALTH_RETRIES); do
 done
 
 log "ERROR: Service did not become healthy after $((HEALTH_RETRIES * HEALTH_INTERVAL))s."
-sudo journalctl -u "$SERVICE_NAME" --no-pager -n 50 2>/dev/null || true
+journalctl --user -u "$SERVICE_NAME" --no-pager -n 50 2>/dev/null || true
 exit 1

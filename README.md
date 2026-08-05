@@ -33,6 +33,7 @@ live outside this repo.
   - `market:read`
   - `analytics:read`
   - `admin:read`
+  - `admin:write` (separate from `admin:read` — create/deactivate end-user accounts)
   - `admin:*`
 
 ## API Reference
@@ -58,6 +59,7 @@ See **[docs/API_REFERENCE.md](docs/API_REFERENCE.md)** for the full endpoint ref
 | Portfolio | `portfolio:read` | `GET /api/v1/portfolio/state` (ownership-aware) |
 | Generic Data | read scope / `admin:read` | `GET /api/v1/data/tables`, columns, rows |
 | Admin | `admin:read` | `GET /api/v1/admin/audit-events\|dashboard-data\|named-query\|etl-jobs\|engine-status\|worker-heartbeats\|price-ticks/{ticker}` |
+| Admin accounts | `admin:write` | `POST /api/v1/admin/accounts`, `DELETE /api/v1/admin/accounts/{user_uuid}` (soft delete, approval-code gated, 1 req/min) |
 
 ## Production setup (Linux server — one time)
 
@@ -90,19 +92,41 @@ is git-ignored; never `git add -f` one.
 sudo bash scripts/install_service.sh
 ```
 
-Logs are available via journald: `sudo journalctl -u theeyebeta-dataapi -f`
+This installs a **`--user`** systemd unit (`~/.config/systemd/user/theeyebeta-dataapi.service`),
+not a system one — `sudo` is only used to enable linger for your user so the
+service survives reboots without an active login session. Every command that
+manages it afterward drops the `sudo` (see Service management below); plain
+`sudo systemctl ... theeyebeta-dataapi` will report "Unit could not be found."
+
+Logs are available via journald: `journalctl --user -u theeyebeta-dataapi -f`
 
 **3. Install the GitHub Actions self-hosted runner (auto-deploys on push to `main`):**
 
-Go to: **GitHub → repo Settings → Actions → Runners → New self-hosted runner → Linux**
-
-Run the commands GitHub provides, then:
+GitHub Actions runners are registered per-repo (this account has no org-level runner
+pool), and this machine also hosts a separate runner for `TheEyeBetaProd`. **Use a
+dedicated directory for this repo's runner — never reuse another repo's runner
+directory.** Reusing one re-registers it against this repo and breaks the other
+repo's deploys.
 
 ```bash
-cd actions-runner
+mkdir -p ~/actions-runner-dataapi && cd ~/actions-runner-dataapi
+```
+
+Go to: **GitHub → TheEyeBetaDataAPI repo Settings → Actions → Runners → New self-hosted runner → Linux**,
+and run the download + `./config.sh` commands GitHub provides from inside
+`~/actions-runner-dataapi`. Then:
+
+```bash
 sudo ./svc.sh install
 sudo ./svc.sh start
 ```
+
+Verify registration succeeded before relying on it: `~/actions-runner-dataapi/.runner`
+should exist and its `gitHubUrl` should point at `TheEyeBetaDataAPI`, and
+`gh api repos/TheEyeBeta/TheEyeBetaDataAPI/actions/runners` should list it. Without
+a registered runner, every push to `main` queues the `deploy` job forever and it
+silently never runs — there's no error, just an indefinitely queued job in the
+Actions tab.
 
 After this, every push to `main` that passes CI will automatically pull the latest code, update dependencies, restart the service, and verify `/health`.
 
@@ -121,21 +145,27 @@ Default bind: `127.0.0.1:7000`
 
 ## Service management
 
+`theeyebeta-dataapi` runs as a **`--user`** systemd unit, not a system one —
+no `sudo` for any of these (run as the same user the service was installed
+for). `server.sh`/`./server.sh status` is a separate, unrelated nohup-based
+path whose PID file doesn't track this service; it will report "Not running"
+even when the API is up. Use the commands below instead.
+
 ```bash
 # Restart
-sudo systemctl restart theeyebeta-dataapi
+systemctl --user restart theeyebeta-dataapi
 
 # Stop
-sudo systemctl stop theeyebeta-dataapi
+systemctl --user stop theeyebeta-dataapi
 
 # Start
-sudo systemctl start theeyebeta-dataapi
+systemctl --user start theeyebeta-dataapi
 
 # Status
-sudo systemctl status theeyebeta-dataapi
+systemctl --user status theeyebeta-dataapi
 
 # Logs
-sudo journalctl -u theeyebeta-dataapi -f
+journalctl --user -u theeyebeta-dataapi -f
 ```
 
 ## Quick verification
