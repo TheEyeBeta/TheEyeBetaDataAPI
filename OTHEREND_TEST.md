@@ -188,13 +188,33 @@ Expected shape:
 
 ## 8) One-command remote smoke
 
-You can also run:
+Bash (read-only: health, token, context, chat):
 
 ```bash
 API_BASE_URL="${API_BASE_URL}" \
 SERVICE_CLIENT_ID="${VI_CLIENT_ID}" \
 SERVICE_CLIENT_SECRET="${VI_CLIENT_SECRET}" \
 bash scripts/verify_remote_access.sh
+```
+
+Python (full E2E, cross-platform, all 7 steps):
+
+```bash
+API_BASE_URL="${API_BASE_URL}" \
+VI_CLIENT_ID="${VI_CLIENT_ID}" VI_CLIENT_SECRET="${VI_CLIENT_SECRET}" \
+TRADE_CLIENT_ID="${TRADE_CLIENT_ID}" TRADE_CLIENT_SECRET="${TRADE_CLIENT_SECRET}" \
+ADMIN_CLIENT_ID="${ADMIN_CLIENT_ID}" ADMIN_CLIENT_SECRET="${ADMIN_CLIENT_SECRET}" \
+python scripts/other_end_e2e_test.py
+```
+
+On Windows (PowerShell):
+
+```powershell
+$env:API_BASE_URL = "https://dataapi.theeyebeta.store"
+$env:VI_CLIENT_ID = "vi-app"; $env:VI_CLIENT_SECRET = "<vi-app-secret>"
+$env:TRADE_CLIENT_ID = "trade-engine"; $env:TRADE_CLIENT_SECRET = "<trade-engine-secret>"
+$env:ADMIN_CLIENT_ID = "admin-tool"; $env:ADMIN_CLIENT_SECRET = "<admin-tool-secret>"
+python scripts/other_end_e2e_test.py
 ```
 
 ## 9) Troubleshooting

@@ -1,6 +1,7 @@
 """Application settings."""
 
 import json
+from urllib.parse import urlparse
 
 from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -31,6 +32,7 @@ class Settings(BaseSettings):
     user_jwt_algorithms: str = "RS256"
 
     service_token_expires_minutes: int = 60
+    delegated_token_expires_minutes: int = 5
     service_client_auth_mode: str = "database"
     service_clients_json: str = "{}"
     service_mtls_enabled: bool = False
@@ -51,6 +53,11 @@ class Settings(BaseSettings):
 
     trusted_hosts: str = "localhost,127.0.0.1"
     trust_proxy_headers: bool = False
+    policy_enforcement_enabled: bool = False
+    admin_gateway_enabled: bool = False
+    admin_service_url: str = ""
+    admin_gateway_timeout_seconds: int = 30
+    admin_gateway_max_body_bytes: int = 1_048_576
 
     # Operator-supplied code word required to deactivate an end-user account
     # via the admin API. Never committed; set per-environment. Unset means the
@@ -97,6 +104,20 @@ class Settings(BaseSettings):
             raise ValueError("service_token_expires_minutes must be between 5 and 1440")
         return value
 
+    @field_validator("delegated_token_expires_minutes")
+    @classmethod
+    def validate_delegated_token_ttl(cls, value: int) -> int:
+        if value < 1 or value > 15:
+            raise ValueError("delegated_token_expires_minutes must be between 1 and 15")
+        return value
+
+    @field_validator("admin_gateway_timeout_seconds", "admin_gateway_max_body_bytes")
+    @classmethod
+    def validate_gateway_limits(cls, value: int) -> int:
+        if value < 1:
+            raise ValueError("admin gateway limits must be positive")
+        return value
+
     @field_validator("service_client_auth_mode")
     @classmethod
     def validate_service_client_auth_mode(cls, value: str) -> str:
@@ -133,6 +154,16 @@ class Settings(BaseSettings):
                 raise ValueError("USER_JWT_JWKS_URL must be https:// in production")
         if self.service_mtls_enabled and not self.trust_proxy_headers:
             raise ValueError("SERVICE_MTLS_ENABLED requires TRUST_PROXY_HEADERS=true")
+        if self.admin_gateway_enabled:
+            parsed_admin_url = urlparse(self.admin_service_url)
+            if parsed_admin_url.scheme != "http" or parsed_admin_url.hostname not in {
+                "127.0.0.1",
+                "localhost",
+                "::1",
+            }:
+                raise ValueError("ADMIN_SERVICE_URL must be an http loopback URL when gateway is enabled")
+        if self.environment == "production" and not self.policy_enforcement_enabled:
+            raise ValueError("POLICY_ENFORCEMENT_ENABLED must be true in production")
         if self.service_client_auth_mode in {"environment", "hybrid"}:
             # Validate env-configured service client JSON when used.
             _ = self.parsed_service_clients

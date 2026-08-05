@@ -246,6 +246,18 @@ Rotates `JWT_SECRET`, `USER_JWT_SECRET`, and all `SERVICE_CLIENTS_JSON` client s
 
 See `docs/API_KEY_SCHEMA_RUNBOOK.md` for PostgreSQL schema and provisioning SQL.
 
+Use [OTHEREND_TEST.md](OTHEREND_TEST.md) for a complete laptop verification workflow with sample successful responses.
+
+Cross-platform Python script (Windows/Unix):
+
+```bash
+API_BASE_URL=https://dataapi.theeyebeta.store \
+VI_CLIENT_ID=vi-app VI_CLIENT_SECRET=<secret> \
+TRADE_CLIENT_ID=trade-engine TRADE_CLIENT_SECRET=<secret> \
+ADMIN_CLIENT_ID=admin-tool ADMIN_CLIENT_SECRET=<secret> \
+python scripts/other_end_e2e_test.py
+```
+
 Provision a DB-backed service credential:
 
 ```bash

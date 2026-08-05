@@ -65,6 +65,10 @@ _BASIC_READ_SCOPES: tuple[str, ...] = (
     SCOPE_PORTFOLIO_READ,
 )
 
+_HIGH_VOLUME_TABLES: frozenset[str] = frozenset(
+    {"prices_daily", "prices_intraday", "price_ticks", "signals", "signals_v1_archive"}
+)
+
 
 class DataService:
     """Authorize and serve read-only table data."""
@@ -96,6 +100,7 @@ class DataService:
         end: date | None,
     ) -> DataRowsResponse:
         self._ensure_table_visible(principal, table)
+        self._validate_high_volume_query(table=table, symbol=symbol, start=start, end=end, limit=limit)
         rows = self._repository.query_rows(
             table=table,
             limit=limit,
@@ -111,6 +116,8 @@ class DataService:
         return DataRowsResponse(table=table, limit=limit, offset=offset, row_count=len(rows), rows=rows)
 
     def _visible_tables(self, principal: Principal) -> list[DataTableInfo]:
+        if principal.delegated:
+            raise AuthorizationError("Delegated Lens tokens cannot use generic table access")
         all_tables = self._repository.list_tables()
         if self._is_admin(principal):
             return [table.model_copy(update={"basic_access": table.name in BASIC_DATA_TABLES}) for table in all_tables]
@@ -122,11 +129,29 @@ class DataService:
         ]
 
     def _ensure_table_visible(self, principal: Principal, table: str) -> None:
+        if principal.delegated:
+            raise AuthorizationError("Delegated Lens tokens cannot use generic table access")
         if self._is_admin(principal):
             return
         self._require_basic_read(principal)
         if table not in BASIC_DATA_TABLES:
             raise AuthorizationError("Table requires admin:read scope")
+
+    @staticmethod
+    def _validate_high_volume_query(
+        *, table: str, symbol: str | None, start: date | None, end: date | None, limit: int
+    ) -> None:
+        """Require bounded instrument and time predicates for hypertable-scale reads."""
+        if table not in _HIGH_VOLUME_TABLES:
+            return
+        if not symbol:
+            raise AuthorizationError("High-volume tables require a symbol filter")
+        if start is None or end is None:
+            raise AuthorizationError("High-volume tables require start and end dates")
+        if start > end:
+            raise AuthorizationError("start must not be after end")
+        if limit > 500:
+            raise AuthorizationError("High-volume table limit must not exceed 500")
 
     @staticmethod
     def _is_admin(principal: Principal) -> bool:

@@ -87,20 +87,27 @@ _CURATED_ADMIN_QUERIES: dict[str, str] = {
         " ORDER BY ls.signal_ts DESC LIMIT :limit"
     ),
     "orders": (
-        "SELECT * FROM theeyebeta.orders ORDER BY created_at DESC LIMIT :limit"
+        "SELECT id, client_order_id, broker_order_id, portfolio_id, instrument_id, side, order_type,"
+        " qty, limit_price, stop_price, time_in_force, status, approved_by, approved_at,"
+        " submitted_at, filled_qty, avg_fill_price, created_at, updated_at"
+        " FROM theeyebeta.orders ORDER BY created_at DESC LIMIT :limit"
     ),
     "portfolio": (
-        "SELECT * FROM theeyebeta.positions ORDER BY market_value DESC NULLS LAST LIMIT :limit"
+        "SELECT id, portfolio_id, instrument_id, qty, avg_entry_price, market_value, unrealized_pnl,"
+        " realized_pnl, opened_at, updated_at"
+        " FROM theeyebeta.positions ORDER BY market_value DESC NULLS LAST LIMIT :limit"
     ),
     "command_log": (
         "SELECT id, actor, action, entity_type, entity_id, ts"
         " FROM theeyebeta.audit_log ORDER BY ts DESC LIMIT :limit"
     ),
     "market_news": (
-        "SELECT * FROM theeyebeta.market_news ORDER BY published_at DESC LIMIT :limit"
+        "SELECT id, provider, url, headline, summary, source, category, related, published_at, fetched_at"
+        " FROM theeyebeta.market_news ORDER BY published_at DESC LIMIT :limit"
     ),
     "heartbeats": (
-        "SELECT * FROM theeyebeta.worker_heartbeats ORDER BY worker_id LIMIT :limit"
+        "SELECT worker_id, worker_type, status, last_heartbeat, started_at, restart_count, last_error"
+        " FROM theeyebeta.worker_heartbeats ORDER BY worker_id LIMIT :limit"
     ),
     "table_stats": (
         "SELECT schemaname, relname AS tablename, n_live_tup AS row_count"

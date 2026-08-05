@@ -21,3 +21,8 @@ class Principal:
     principal_type: PrincipalType
     scopes: frozenset[str]
     client_id: str | None = None
+    tenant_id: str | None = None
+    product: str | None = None
+    token_id: str | None = None
+    policy_version: int | None = None
+    delegated: bool = False

@@ -14,6 +14,18 @@ SCOPE_PORTFOLIO_READ = "portfolio:read"
 SCOPE_ADMIN_ALL = "admin:*"
 SCOPE_ADMIN_READ = "admin:read"
 SCOPE_ADMIN_WRITE = "admin:write"
+SCOPE_LENS_DELEGATE = "lens:delegate"
+
+# Lens delegated access is intentionally data-only. Administrator, portfolio,
+# and advisor scopes never cross a service-to-user delegation boundary.
+LENS_DELEGATED_READ_SCOPES: frozenset[str] = frozenset(
+    {
+        SCOPE_MARKET_READ,
+        SCOPE_SYMBOLS_READ,
+        SCOPE_ANALYTICS_READ,
+        SCOPE_SIGNALS_READ,
+    }
+)
 
 
 def _scope_matches(granted: str, required: str) -> bool:

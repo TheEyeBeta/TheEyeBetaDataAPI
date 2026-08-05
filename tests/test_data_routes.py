@@ -97,3 +97,17 @@ def test_filter_parser_rejects_unknown_column() -> None:
 
 def test_filter_parser_accepts_safe_filter() -> None:
     assert SQLReadOnlyDataRepository._parse_filter("symbol:eq:AAPL", {"symbol"}) == ("symbol", "eq", "AAPL")
+
+
+def test_high_volume_tables_require_symbol_and_time_window() -> None:
+    app.dependency_overrides[get_readonly_data_repository] = lambda: _FakeDataRepository()
+    client = TestClient(app)
+    token = _make_user_token(["market:read"])
+
+    response = client.get(
+        "/api/v1/data/tables/prices_daily/rows",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 403
+    app.dependency_overrides.clear()

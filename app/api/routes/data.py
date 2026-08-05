@@ -7,17 +7,35 @@ from datetime import date
 from fastapi import APIRouter, Depends, Path, Query
 
 from app.api.dependencies.services import get_data_service
-from app.auth.dependencies import get_principal
+from app.auth.dependencies import require_any_scope
+from app.auth.scopes import (
+    SCOPE_ADVISOR_READ,
+    SCOPE_ADMIN_READ,
+    SCOPE_ANALYTICS_READ,
+    SCOPE_MARKET_READ,
+    SCOPE_PORTFOLIO_READ,
+    SCOPE_SIGNALS_READ,
+    SCOPE_SYMBOLS_READ,
+)
 from app.auth.models import Principal
 from app.schemas.data import DataColumnsResponse, DataRowsResponse, DataTablesResponse
 from app.services.data_service import DataService
 
 router = APIRouter(prefix="/api/v1/data", tags=["data"])
+_DATA_READ_SCOPES = [
+    SCOPE_MARKET_READ,
+    SCOPE_SYMBOLS_READ,
+    SCOPE_ANALYTICS_READ,
+    SCOPE_ADVISOR_READ,
+    SCOPE_SIGNALS_READ,
+    SCOPE_PORTFOLIO_READ,
+    SCOPE_ADMIN_READ,
+]
 
 
 @router.get("/tables", response_model=DataTablesResponse)
 def list_tables(
-    principal: Principal = Depends(get_principal),
+    principal: Principal = Depends(require_any_scope(_DATA_READ_SCOPES)),
     service: DataService = Depends(get_data_service),
 ) -> DataTablesResponse:
     """List readable theeyebeta tables."""
@@ -27,7 +45,7 @@ def list_tables(
 @router.get("/tables/{table}/columns", response_model=DataColumnsResponse)
 def list_columns(
     table: str = Path(pattern=r"^[A-Za-z_][A-Za-z0-9_]*$"),
-    principal: Principal = Depends(get_principal),
+    principal: Principal = Depends(require_any_scope(_DATA_READ_SCOPES)),
     service: DataService = Depends(get_data_service),
 ) -> DataColumnsResponse:
     """List columns for one readable theeyebeta table."""
@@ -46,7 +64,7 @@ def query_rows(
     date_column: str | None = Query(default=None, pattern=r"^[A-Za-z_][A-Za-z0-9_]*$"),
     start: date | None = Query(default=None),
     end: date | None = Query(default=None),
-    principal: Principal = Depends(get_principal),
+    principal: Principal = Depends(require_any_scope(_DATA_READ_SCOPES)),
     service: DataService = Depends(get_data_service),
 ) -> DataRowsResponse:
     """Return paged rows from one readable theeyebeta table."""

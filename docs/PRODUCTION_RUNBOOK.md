@@ -27,6 +27,16 @@ Set `.env` from `.env.example` and configure:
   - `SERVICE_MTLS_SUBJECTS_JSON`
   - `SERVICE_MTLS_HEADER_CLIENT_ID`
   - `SERVICE_MTLS_HEADER_SUBJECT`
+- DataAPI policy and administrative gateway:
+  - apply TheEyeProd Alembic migration `0092_dataapi_policy_control` before deploying this API;
+  - seed an active internal/Lens tenant, application, membership, policy version, and
+    `LENS_ACCESS` entitlement through the proxied `admin-service` SQL console. It requires
+    MASTER_ADMIN MFA, `X-Confirm: true`, a reason, and an idempotency key; its admin-service
+    transaction appends the canonical audit event;
+  - set `POLICY_ENFORCEMENT_ENABLED=true`, `ADMIN_GATEWAY_ENABLED=true`, and loopback-only
+    `ADMIN_SERVICE_URL=http://127.0.0.1:7200`;
+  - keep DataAPI's database role read-only; `admin-service` commits administrator-authorized
+    policy mutations and audit rows using its existing privileged connection.
 
 ## 3) Start service
 
@@ -102,3 +112,5 @@ bash scripts/verify_remote_access.sh
 - Use distinct principals per consumer (mobile backend, VI, trade engine, admin/internal).
 - Require `Idempotency-Key` for write routes.
 - Enable JWKS and mTLS in production when identity provider and proxy are ready.
+- Remove direct public admin ingress only after DataAPI gateway smoke tests prove that MFA, RBAC,
+  confirmation, SQL protection, and audit correlation are preserved.

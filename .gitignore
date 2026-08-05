@@ -7,7 +7,7 @@ __pycache__/
 *.pyc
 *.pyo
 .venv/
-.venv-*/
+.venv*/
 venv/
 *.egg-info/
 

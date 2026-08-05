@@ -12,6 +12,19 @@ from app.auth.user_api_keys import is_user_api_key, verify_user_api_key
 from app.core.client_ip import get_client_ip
 from app.core.config import settings
 from app.domain.errors import AuthenticationError, AuthorizationError
+from app.db.session import get_db_session
+from app.policy.repository import enforce_policy
+
+
+def _enforce_current_policy(principal: Principal) -> None:
+    """Evaluate current policy once authentication and scope checks have passed."""
+    if not settings.policy_enforcement_enabled:
+        return
+    session = get_db_session()
+    try:
+        enforce_policy(session, principal)
+    finally:
+        session.close()
 
 
 def _principal_from_mtls_headers(request: Request) -> Principal | None:
@@ -67,6 +80,19 @@ def require_scopes(required: list[str]):
     def _enforce(principal: Principal = Depends(get_principal)) -> Principal:
         if not has_required_scopes(principal.scopes, required):
             raise AuthorizationError("Insufficient scopes")
+        _enforce_current_policy(principal)
+        return principal
+
+    return _enforce
+
+
+def require_any_scope(required: list[str]):
+    """Return dependency requiring one compatible read scope and current policy."""
+
+    def _enforce(principal: Principal = Depends(get_principal)) -> Principal:
+        if not any(has_required_scopes(principal.scopes, [scope]) for scope in required):
+            raise AuthorizationError("A compatible read scope is required")
+        _enforce_current_policy(principal)
         return principal
 
     return _enforce

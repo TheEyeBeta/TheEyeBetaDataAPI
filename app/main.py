@@ -9,6 +9,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.api.error_handlers import register_error_handlers
 from app.api.routes.admin import router as admin_router
+from app.api.routes.admin_gateway import router as admin_gateway_router
 from app.api.routes.analytics import router as analytics_router
 from app.api.routes.auth import router as auth_router
 from app.api.routes.chat import router as chat_router
@@ -66,8 +67,16 @@ if settings.parsed_cors_origins:
         CORSMiddleware,
         allow_origins=settings.parsed_cors_origins,
         allow_credentials=True,
-        allow_methods=["GET", "POST", "OPTIONS"],
-        allow_headers=["Authorization", "Content-Type", "X-Request-ID", "Idempotency-Key"],
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=[
+            "Authorization",
+            "Content-Type",
+            "X-Request-ID",
+            "Idempotency-Key",
+            "X-Confirm",
+            "X-Dry-Run",
+            "X-CSRF-Token",
+        ],
     )
 
 app.include_router(health_router)
@@ -91,6 +100,7 @@ app.include_router(macro_router, prefix="/api/v1/macro", include_in_schema=False
 app.include_router(fixed_income_router, prefix="/api/v1/fixed-income")
 app.include_router(news_router)
 app.include_router(admin_router)
+app.include_router(admin_gateway_router)
 
 register_error_handlers(app)
 

@@ -22,3 +22,16 @@ class ServiceTokenResponse(BaseModel):
     token_type: str = "bearer"
     expires_minutes: int
     scopes: list[str]
+
+
+class DelegatedTokenRequest(BaseModel):
+    """Lens user token presented by an authenticated Lens backend."""
+
+    subject_token: str = Field(min_length=20, max_length=16_384)
+
+
+class DelegatedTokenResponse(ServiceTokenResponse):
+    """Short-lived DataAPI token with a tenant-bound actor and subject."""
+
+    tenant_id: str
+    product: str = "LENS"
