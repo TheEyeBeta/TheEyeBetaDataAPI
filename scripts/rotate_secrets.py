@@ -53,8 +53,9 @@ def main() -> int:
 
     values["SERVICE_CLIENTS_JSON"] = json.dumps(clients, separators=(",", ":"))
 
-    backup_path = env_path.with_suffix(f".env.bak.{dt.datetime.now(dt.UTC).strftime('%Y%m%d%H%M%S')}")
+    backup_path = env_path.with_name(f"{env_path.name}.bak.{dt.datetime.now(dt.UTC).strftime('%Y%m%d%H%M%S')}")
     backup_path.write_text(env_path.read_text(encoding="utf-8"), encoding="utf-8")
+    backup_path.chmod(0o600)
 
     existing_lines = env_path.read_text(encoding="utf-8").splitlines()
     rewritten: list[str] = []
@@ -76,8 +77,9 @@ def main() -> int:
             rewritten.append(f"{key}={values[key]}")
 
     env_path.write_text("\n".join(rewritten) + "\n", encoding="utf-8")
+    env_path.chmod(0o600)
 
-    print(f"Rotated secrets written to {env_path}. Backup saved at {backup_path}.")
+    print(f"Rotated secrets written to {env_path} (mode 600). Backup saved at {backup_path} (mode 600).")
     print("Updated service client secrets:")
     for client_id, secret in rotated_client_secrets.items():
         print(f"  {client_id}: {secret}")

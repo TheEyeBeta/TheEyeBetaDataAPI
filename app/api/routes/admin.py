@@ -11,7 +11,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from app.api.dependencies.services import get_account_service, get_admin_service, get_market_data_service
 from app.auth.dependencies import require_scopes
 from app.auth.scopes import SCOPE_ADMIN_READ, SCOPE_ADMIN_WRITE
-from app.core.subject_rate_limit import require_admin_rate_limit
+from app.core.subject_rate_limit import require_account_delete_rate_limit, require_admin_rate_limit
 from app.repositories.sql_market_data import CURATED_QUERY_NAMES
 from app.schemas.accounts import AccountResponse, CreateAccountRequest, DeleteAccountRequest
 from app.schemas.market import (
@@ -109,12 +109,17 @@ def delete_account(
     user_uuid: uuid.UUID = Path(...),
     _=Depends(require_scopes([SCOPE_ADMIN_WRITE])),
     _rl=Depends(require_admin_rate_limit),
+    _drl=Depends(require_account_delete_rate_limit),
     service: AccountService = Depends(get_account_service),
 ) -> AccountResponse:
     """Deactivate an end-user account. Requires a valid operator approval code.
 
     This is a soft delete: iam.users.is_active is set to false, which triggers
     automatic revocation of the account's API keys. Nothing is hard-deleted.
+
+    Capped at 1 request/minute per subject (on top of the general admin rate
+    limit) so brute-forcing the approval code isn't practical regardless of
+    the code's length.
     """
     actor_subject = getattr(request.state, "auth_subject", "unknown")
     logger.warning(

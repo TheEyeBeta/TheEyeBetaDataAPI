@@ -32,3 +32,17 @@ os.environ.setdefault("API_PORT", "7000")
 os.environ.setdefault("CORS_ORIGINS", "http://localhost:3000,http://localhost:5173")
 os.environ.setdefault("TRUSTED_HOSTS", "testserver,localhost,127.0.0.1")
 os.environ.setdefault("TRUST_PROXY_HEADERS", "false")
+
+import pytest  # noqa: E402
+
+from app.core.subject_rate_limit import reset_rate_limits  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _reset_rate_limit_buckets():
+    """Rate-limit buckets are process-global and keyed by auth_subject, which is
+    fixed per test service-client (e.g. "service:admin-tool") -- without this,
+    tests that call the same rate-limited route back-to-back would collide.
+    """
+    reset_rate_limits()
+    yield
