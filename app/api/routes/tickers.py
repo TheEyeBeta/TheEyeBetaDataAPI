@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date
+from typing import Literal
 
 from fastapi import APIRouter, Depends, Query
 
@@ -39,10 +40,19 @@ def get_price_history(
     start: date | None = Query(default=None, description="Start date (inclusive)"),
     end: date | None = Query(default=None, description="End date (inclusive)"),
     limit: int = Query(default=252, ge=1, le=2000),
+    adjust: Literal["none", "splits_dividends"] = Query(
+        default="none",
+        description=(
+            "'none' returns raw OHLC (default, unchanged from before this param existed). "
+            "'splits_dividends' rescales OHLC by the stored adj_close/close ratio and also "
+            "populates the response's corporate_actions list. A splits-only value isn't "
+            "offered: only the combined split+dividend adjustment is stored upstream."
+        ),
+    ),
     _=Depends(require_scopes([SCOPE_MARKET_READ])),
     service: MarketDataService = Depends(get_market_data_service),
 ) -> PriceHistoryResponse:
-    return service.get_price_history(ticker=ticker.upper(), start=start, end=end, limit=limit)
+    return service.get_price_history(ticker=ticker.upper(), start=start, end=end, limit=limit, adjust=adjust)
 
 
 @router.get("/{ticker}/corporate-actions", response_model=CorporateActionsResponse)

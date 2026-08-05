@@ -85,6 +85,21 @@ def _snapshot_to_response(snapshot) -> TickerSnapshotResponse:
     )
 
 
+def _adjust_price_day(bar: PriceDayResponse) -> PriceDayResponse:
+    """Rescale OHLC by adj_close/close so all four move together; volume is untouched."""
+    if not bar.close or not bar.adj_close:
+        return bar
+    factor = bar.adj_close / bar.close
+    return bar.model_copy(
+        update={
+            "open": bar.open * factor if bar.open is not None else None,
+            "high": bar.high * factor if bar.high is not None else None,
+            "low": bar.low * factor if bar.low is not None else None,
+            "close": bar.adj_close,
+        }
+    )
+
+
 class MarketDataService:
     """Read-focused market and analytics use-cases."""
 
@@ -177,11 +192,41 @@ class MarketDataService:
             identifiers=[TickerIdentifierResponse(id_type=i["id_type"], id_value=i["id_value"]) for i in item.identifiers],
         )
 
-    def get_price_history(self, ticker: str, start: date | None, end: date | None, limit: int) -> PriceHistoryResponse:
+    def get_price_history(
+        self,
+        ticker: str,
+        start: date | None,
+        end: date | None,
+        limit: int,
+        adjust: str = "none",
+    ) -> PriceHistoryResponse:
+        """Return OHLCV history, optionally adjusted for splits and dividends.
+
+        ``adjust="splits_dividends"`` rescales each bar's OHLC by the ratio of
+        the already-stored ``adj_close`` to ``close`` (the combined
+        split+dividend adjustment the ingestion pipeline computes) — volume is
+        left as-is. There is no separate splits-only adjusted series stored,
+        so a splits-only ``adjust`` value is intentionally not offered here
+        rather than silently returning an incorrect series.
+        """
         items = self._repository.get_price_history(ticker=ticker, start=start, end=end, limit=limit)
+        prices = [
+            PriceDayResponse(date=p.date, open=p.open, high=p.high, low=p.low, close=p.close, adj_close=p.adj_close, volume=p.volume, vwap=p.vwap)
+            for p in items
+        ]
+        corporate_actions: list[CorporateActionResponse] = []
+        if adjust == "splits_dividends":
+            prices = [_adjust_price_day(p) for p in prices]
+            actions = self._repository.get_corporate_actions(ticker=ticker, limit=500)
+            corporate_actions = [
+                CorporateActionResponse(action_id=a.action_id, action_date=a.action_date, action_type=a.action_type, split_ratio=a.split_ratio, dividend_amount=a.dividend_amount, notes=a.notes)
+                for a in actions
+            ]
         return PriceHistoryResponse(
             ticker=ticker.upper(),
-            prices=[PriceDayResponse(date=p.date, open=p.open, high=p.high, low=p.low, close=p.close, adj_close=p.adj_close, volume=p.volume, vwap=p.vwap) for p in items],
+            prices=prices,
+            adjustment=adjust,
+            corporate_actions=corporate_actions,
         )
 
     def get_corporate_actions(self, ticker: str, limit: int) -> CorporateActionsResponse:
