@@ -167,7 +167,7 @@ class SQLMarketDataRepository(MarketDataRepository):
                       AND (
                         UPPER(symbol) LIKE UPPER(:prefix)
                         OR (
-                          LENGTH(BTRIM(:query)) >= 3
+                          LENGTH(BTRIM(:query)) >= 2
                           AND UPPER(COALESCE(metadata->>'company_name', metadata->>'name', ''))
                               LIKE UPPER(:name_like)
                         )
@@ -175,8 +175,12 @@ class SQLMarketDataRepository(MarketDataRepository):
                     ORDER BY
                       CASE
                         WHEN UPPER(symbol) = UPPER(:query) THEN 0
-                        WHEN UPPER(symbol) LIKE UPPER(:prefix) THEN 1
-                        ELSE 2
+                        WHEN UPPER(COALESCE(metadata->>'company_name', metadata->>'name', ''))
+                             = UPPER(:query) THEN 1
+                        WHEN UPPER(symbol) LIKE UPPER(:prefix) THEN 2
+                        WHEN UPPER(COALESCE(metadata->>'company_name', metadata->>'name', ''))
+                             LIKE UPPER(:prefix) THEN 3
+                        ELSE 4
                       END,
                       LENGTH(symbol),
                       symbol
