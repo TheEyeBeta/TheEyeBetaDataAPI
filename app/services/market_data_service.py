@@ -81,6 +81,8 @@ def _snapshot_to_response(snapshot) -> TickerSnapshotResponse:
         macd=snapshot.macd,
         macd_signal=snapshot.macd_signal,
         macd_hist=snapshot.macd_hist,
+        eps=getattr(snapshot, "eps", None),
+        pe_ratio=getattr(snapshot, "pe_ratio", None),
         updated_at=snapshot.updated_at,
     )
 

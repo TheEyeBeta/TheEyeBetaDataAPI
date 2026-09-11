@@ -55,6 +55,8 @@ class TickerSnapshot:
     macd: float | None
     macd_signal: float | None
     macd_hist: float | None
+    eps: float | None
+    pe_ratio: float | None
     updated_at: datetime | None
 
 

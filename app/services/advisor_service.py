@@ -24,6 +24,8 @@ def _to_context_response(context: AdvisorContext) -> AdvisorContextResponse:
             macd=context.ticker_snapshot.macd,
             macd_signal=context.ticker_snapshot.macd_signal,
             macd_hist=context.ticker_snapshot.macd_hist,
+            eps=getattr(context.ticker_snapshot, "eps", None),
+            pe_ratio=getattr(context.ticker_snapshot, "pe_ratio", None),
             updated_at=context.ticker_snapshot.updated_at,
         )
     return AdvisorContextResponse(

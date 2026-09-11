@@ -247,9 +247,22 @@ class SQLMarketDataRepository(MarketDataRepository):
                         ls.macd,
                         ls.macd_signal,
                         ls.macd_hist,
+                        COALESCE(
+                            ls.eps,
+                            (
+                                SELECT COALESCE(fi.eps_diluted, fi.eps_basic)
+                                  FROM theeyebeta.fund_income_q fi
+                                 WHERE fi.instrument_id = ls.instrument_id
+                                   AND COALESCE(fi.eps_diluted, fi.eps_basic) IS NOT NULL
+                                 ORDER BY fi.period_end DESC NULLS LAST
+                                 LIMIT 1
+                            )
+                        ) AS eps,
+                        COALESCE(ls.pe_ratio, fc.pe_ratio) AS pe_ratio,
                         ls.updated_at
                     FROM theeyebeta.latest_snapshots ls
                     JOIN theeyebeta.instruments i ON i.id = ls.instrument_id
+                    LEFT JOIN theeyebeta.fundamentals_company fc ON fc.instrument_id = ls.instrument_id
                     WHERE UPPER(i.symbol) = UPPER(:ticker)
                     """
                 ),
@@ -269,6 +282,8 @@ class SQLMarketDataRepository(MarketDataRepository):
                 macd=_to_float(row.get("macd")),
                 macd_signal=_to_float(row.get("macd_signal")),
                 macd_hist=_to_float(row.get("macd_hist")),
+                eps=_to_float(row.get("eps")),
+                pe_ratio=_to_float(row.get("pe_ratio")),
                 updated_at=_to_datetime(row.get("updated_at")),
             )
         except SQLAlchemyError as exc:

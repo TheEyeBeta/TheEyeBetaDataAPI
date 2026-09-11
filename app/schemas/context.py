@@ -37,6 +37,8 @@ class TickerSnapshotResponse(BaseModel):
     macd: float | None = None
     macd_signal: float | None = None
     macd_hist: float | None = None
+    eps: float | None = None
+    pe_ratio: float | None = None
     updated_at: datetime | None = None
 
 
