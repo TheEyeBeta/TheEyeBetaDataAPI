@@ -166,13 +166,29 @@ class SQLMarketDataRepository(MarketDataRepository):
                     WHERE active = true
                       AND (
                         UPPER(symbol) LIKE UPPER(:prefix)
-                        OR UPPER(COALESCE(metadata->>'company_name', metadata->>'name', symbol)) LIKE UPPER(:name_like)
+                        OR (
+                          LENGTH(BTRIM(:query)) >= 3
+                          AND UPPER(COALESCE(metadata->>'company_name', metadata->>'name', ''))
+                              LIKE UPPER(:name_like)
+                        )
                       )
-                    ORDER BY symbol
+                    ORDER BY
+                      CASE
+                        WHEN UPPER(symbol) = UPPER(:query) THEN 0
+                        WHEN UPPER(symbol) LIKE UPPER(:prefix) THEN 1
+                        ELSE 2
+                      END,
+                      LENGTH(symbol),
+                      symbol
                     LIMIT :limit
                     """
                 ),
-                {"prefix": f"{query}%", "name_like": f"%{query}%", "limit": limit},
+                {
+                    "query": query.strip(),
+                    "prefix": f"{query.strip()}%",
+                    "name_like": f"%{query.strip()}%",
+                    "limit": limit,
+                },
             ).mappings().all()
             return [TickerSummary(ticker=str(row["ticker"]), company_name=str(row["company_name"])) for row in rows]
         except SQLAlchemyError as exc:
