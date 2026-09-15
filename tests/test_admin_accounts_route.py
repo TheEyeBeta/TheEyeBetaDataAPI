@@ -26,6 +26,21 @@ class _FakeAccountService:
     def __init__(self) -> None:
         self.create_calls: list[dict] = []
         self.delete_calls: list[dict] = []
+        self.list_calls: list[dict] = []
+
+    def list_accounts(self, **kwargs) -> list[dict]:
+        self.list_calls.append(kwargs)
+        return [
+            {
+                "user_uuid": "11111111-1111-1111-1111-111111111111",
+                "email": "listed@example.com",
+                "display_name": "Listed",
+                "organization": None,
+                "plan": "free",
+                "is_active": True,
+                "created_at": None,
+            }
+        ]
 
     def create_account(self, **kwargs) -> dict:
         self.create_calls.append(kwargs)
@@ -51,6 +66,23 @@ def _client_with_fake_service() -> tuple[TestClient, _FakeAccountService]:
     fake = _FakeAccountService()
     app.dependency_overrides[get_account_service] = lambda: fake
     return TestClient(app), fake
+
+
+def test_admin_read_scope_can_list_accounts() -> None:
+    client, fake = _client_with_fake_service()
+    try:
+        token = _issue_service_token(client, "admin-tool", "admin-tool-secret-which-is-24chars", ["admin:read"])
+        response = client.get(
+            "/api/v1/admin/accounts",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["total"] == 1
+        assert body["accounts"][0]["email"] == "listed@example.com"
+        assert len(fake.list_calls) == 1
+    finally:
+        app.dependency_overrides.clear()
 
 
 def test_admin_write_scope_can_create_account() -> None:

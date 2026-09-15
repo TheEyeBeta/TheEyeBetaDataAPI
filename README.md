@@ -12,6 +12,8 @@ live outside this repo.
 
 See [`docs/IAM_CONSUMER_INVENTORY.md`](docs/IAM_CONSUMER_INVENTORY.md). The `vi-app` name in examples is a **template / legacy IAM row**, not an active product.
 
+**Ops viewer:** open `GET /api/v1/admin/dashboard` in a browser with an `admin:read` (and optionally `admin:write`) token — connections, telemetry/data flow, tables, and account create/block.
+
 ## Architecture model
 
 - Private DB is reachable only by this API service.
@@ -75,8 +77,8 @@ See **[docs/API_REFERENCE.md](docs/API_REFERENCE.md)** for the full endpoint ref
 | Advisor | `advisor:read` | `GET /api/v1/advisor/context`, `POST /api/v1/advisor/chat` |
 | Portfolio | `portfolio:read` | `GET /api/v1/portfolio/state` (ownership-aware) |
 | Generic Data | read scope / `admin:read` | `GET /api/v1/data/tables`, columns, rows |
-| Admin | `admin:read` | `GET /api/v1/admin/audit-events\|dashboard-data\|named-query\|etl-jobs\|engine-status\|worker-heartbeats\|price-ticks/{ticker}` |
-| Admin accounts | `admin:write` | `POST /api/v1/admin/accounts`, `DELETE /api/v1/admin/accounts/{user_uuid}` (soft delete, approval-code gated, 1 req/min) |
+| Admin | `admin:read` | `GET /api/v1/admin/dashboard` (ops HTML), `dashboard-data`, `accounts`, `audit-events`, `named-query`, `etl-jobs`, `engine-status`, `worker-heartbeats`, `price-ticks/{ticker}` |
+| Admin accounts | `admin:read` / `admin:write` | `GET /api/v1/admin/accounts` (list); `POST` create; `DELETE /api/v1/admin/accounts/{user_uuid}` soft-block (approval-code gated, 1 req/min) |
 
 ## Production setup (Linux server — one time)
 

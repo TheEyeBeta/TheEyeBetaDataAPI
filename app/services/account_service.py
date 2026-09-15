@@ -28,6 +28,37 @@ class AccountService:
     def __init__(self, session: Session) -> None:
         self._session = session
 
+    def list_accounts(self, *, include_inactive: bool = True, limit: int = 200) -> list[dict]:
+        """Return iam.users rows for the ops dashboard (active and blocked)."""
+        limit = max(1, min(limit, 500))
+        try:
+            rows = (
+                self._session.execute(
+                    text(
+                        """
+                        SELECT
+                            user_uuid::text AS user_uuid,
+                            email,
+                            display_name,
+                            organization,
+                            plan,
+                            is_active,
+                            created_at
+                        FROM iam.users
+                        WHERE (:include_inactive OR is_active = true)
+                        ORDER BY is_active DESC, created_at DESC NULLS LAST, email
+                        LIMIT :limit
+                        """
+                    ),
+                    {"include_inactive": include_inactive, "limit": limit},
+                )
+                .mappings()
+                .all()
+            )
+            return [dict(row) for row in rows]
+        except SQLAlchemyError as exc:
+            raise DatabaseUnavailableError("Unable to list accounts") from exc
+
     def create_account(
         self,
         *,
