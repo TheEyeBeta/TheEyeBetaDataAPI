@@ -16,19 +16,26 @@ cloudflared tunnel "my-api"  (systemd: cloudflared.service)
    ├── api.theeyebeta.store     → 127.0.0.1:8000  TheEyeBetaLocal Main API
    ├── dataapi.theeyebeta.store     → 127.0.0.1:7000  TheEyeBetaDataAPI
    ├── dataapiprod.theeyebeta.store → 127.0.0.1:7000  TheEyeBetaDataAPI (prod alias)
-   └── admin.theeyebeta.store       → 127.0.0.1:7200  TheEyeBetaProd admin service
+   └── admin.theeyebeta.store       → 127.0.0.1:8080  The Eye hosted terminal
 ```
 
 | Public URL | Local service | Repo |
 |---|---|---|
-| `https://dataapi.theeyebeta.store` | `127.0.0.1:7000` | TheEyeBetaDataAPI |
-| `https://dataapiprod.theeyebeta.store` | `127.0.0.1:7000` | TheEyeBetaDataAPI (prod alias) |
+| `https://dataapiprod.theeyebeta.store` | `127.0.0.1:7000` | TheEyeBetaDataAPI (canonical production origin) |
+| `https://dataapi.theeyebeta.store` | `127.0.0.1:7000` | TheEyeBetaDataAPI (legacy alias) |
 | `https://api.theeyebeta.store` | `127.0.0.1:8000` | TheEyeBetaLocal |
-| `https://admin.theeyebeta.store` | `127.0.0.1:7200` | TheEyeBetaProd |
+| `https://admin.theeyebeta.store` | `127.0.0.1:8080` | The Eye hosted terminal |
+
+The browser and bundled Windows terminal call `dataapiprod.theeyebeta.store`
+directly. DataAPI's explicit `/admin/*` gateway manifest is the only public
+path to admin-service; `admin.theeyebeta.store` serves static web assets only.
 
 **Do not use Docker** for these app ports. Old containers (`theeyebeta-dataapi`, `theeyebeta-api-dev`, nginx on `:80`) are obsolete and will break the tunnel if left running.
 
 ## Canonical config
+
+There is no separate product hostname or gateway. Product users authenticate
+in the same terminal and receive fewer pages and operations through RBAC.
 
 Source of truth: [`deploy/cloudflared-config.yml`](../deploy/cloudflared-config.yml)
 
@@ -51,7 +58,7 @@ tmux new-session -d -s theeyebeta-watchdog "bash scripts/watchdog_all.sh"
 
 ## One-time permanent tunnel fix
 
-If `dataapi.theeyebeta.store` returns **502/530** but `curl http://127.0.0.1:7000/health` works, the system tunnel config is stale (often still pointing `dataapi` at Docker nginx on port **80**).
+If `dataapiprod.theeyebeta.store` returns **502/530** but `curl http://127.0.0.1:7000/health` works, the system tunnel config is stale (often still pointing the Data API hostname at Docker nginx on port **80**).
 
 ```bash
 cd /home/the-eye-beta/TheEyeBeta2025/TheEyeBetaDataAPI
@@ -89,18 +96,23 @@ curl -s http://127.0.0.1:8090/health   # Trask
 **Through tunnel:**
 
 ```bash
-curl -s https://dataapi.theeyebeta.store/health
 curl -s https://dataapiprod.theeyebeta.store/health
 curl -s https://api.theeyebeta.store/health
 ```
 
-**Authenticated data (Data API via tunnel):**
+**Authenticated data (Data API via tunnel)** — prefer a real product client:
 
 ```bash
-API_BASE_URL="https://dataapi.theeyebeta.store" \
-SERVICE_CLIENT_ID="vi-app" \
+API_BASE_URL="https://dataapiprod.theeyebeta.store" \
+SERVICE_CLIENT_ID="ai-advisor-production" \
 SERVICE_CLIENT_SECRET="<secret>" \
 bash scripts/verify_remote_access.sh
+```
+
+Admin Frontend gateway (unauthenticated — expect 401 when up):
+
+```bash
+curl -s -o /dev/null -w "%{http_code}\n" https://dataapiprod.theeyebeta.store/admin/auth/me
 ```
 
 ## Common failures

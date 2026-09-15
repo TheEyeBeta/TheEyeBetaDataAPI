@@ -2,28 +2,33 @@
 
 Use this to verify from a separate laptop that the public API is reachable through Cloudflare Tunnel and returning real database-backed data.
 
+**Product release gates:** smoke **Lens** (`ai-advisor-production`) and **TheEyeBetaAdmin Frontend**
+(`/admin/*` gateway). Other clients below (`trade-engine`, `admin-tool`) are optional capability
+checks. Env vars still named `VI_*` are a legacy script convention — put **Lens** credentials there.
+
 ## 1) Prerequisites
 
 - Server is running this API on `127.0.0.1:7000`.
 - Cloudflare Tunnel ingress points to:
-  - `dataapi.theeyebeta.store -> http://127.0.0.1:7000`
-- You have service credentials from server `.env`:
-  - `vi-app` client id/secret (read checks)
-  - `trade-engine` client id/secret (write checks)
-  - `admin-tool` client id/secret (admin checks)
+  - `dataapiprod.theeyebeta.store -> http://127.0.0.1:7000`
+- You have service credentials from server `.env` / IAM:
+  - `ai-advisor-production` client id/secret (Lens / read checks — use as `VI_*` below)
+  - `trade-engine` client id/secret (write checks, optional)
+  - `admin-tool` / `theeyebeta-prod-admin` client id/secret (admin / data-bridge checks)
 
 ## 2) Set laptop variables
 
 On your laptop terminal:
 
 ```bash
-export API_BASE_URL="https://dataapi.theeyebeta.store"
-export VI_CLIENT_ID="vi-app"
-export VI_CLIENT_SECRET="<vi-app-secret>"
+export API_BASE_URL="https://dataapiprod.theeyebeta.store"
+# Legacy VI_* names — use Lens prod credentials
+export VI_CLIENT_ID="ai-advisor-production"
+export VI_CLIENT_SECRET="<ai-advisor-production-secret>"
 export TRADE_CLIENT_ID="trade-engine"
 export TRADE_CLIENT_SECRET="<trade-engine-secret>"
-export ADMIN_CLIENT_ID="admin-tool"
-export ADMIN_CLIENT_SECRET="<admin-tool-secret>"
+export ADMIN_CLIENT_ID="theeyebeta-prod-admin"
+export ADMIN_CLIENT_SECRET="<theeyebeta-prod-admin-secret>"
 ```
 
 ## 3) Health check (public)
@@ -38,15 +43,15 @@ Expected shape:
 {"status":"healthy","database":true}
 ```
 
-## 4) Read flow test (advisor context)
+## 4) Read flow test (Lens / advisor context)
 
-Issue VI token:
+Issue Lens token:
 
 ```bash
 VI_TOKEN=$(curl -sS -X POST "${API_BASE_URL}/api/v1/auth/service-token" \
   -u "${VI_CLIENT_ID}:${VI_CLIENT_SECRET}" \
   -H "Content-Type: application/json" \
-  -d '{"requested_scopes":["advisor:read","market:read"]}' \
+  -d '{"requested_scopes":["advisor:read","market:read","signals:read","symbols:read"]}' \
   | python3 -c 'import sys,json; print(json.load(sys.stdin)["access_token"])')
 ```
 
@@ -55,6 +60,12 @@ Fetch context:
 ```bash
 curl -sS "${API_BASE_URL}/api/v1/context?ticker=AAPL" \
   -H "Authorization: Bearer ${VI_TOKEN}"
+```
+
+Admin Frontend gateway (unauthenticated — expect 401 when up):
+
+```bash
+curl -sS -o /dev/null -w "%{http_code}\n" "${API_BASE_URL}/admin/auth/me"
 ```
 
 Expected shape:
@@ -210,10 +221,11 @@ python scripts/other_end_e2e_test.py
 On Windows (PowerShell):
 
 ```powershell
-$env:API_BASE_URL = "https://dataapi.theeyebeta.store"
-$env:VI_CLIENT_ID = "vi-app"; $env:VI_CLIENT_SECRET = "<vi-app-secret>"
+$env:API_BASE_URL = "https://dataapiprod.theeyebeta.store"
+# Legacy VI_* names — use Lens prod credentials
+$env:VI_CLIENT_ID = "ai-advisor-production"; $env:VI_CLIENT_SECRET = "<ai-advisor-production-secret>"
 $env:TRADE_CLIENT_ID = "trade-engine"; $env:TRADE_CLIENT_SECRET = "<trade-engine-secret>"
-$env:ADMIN_CLIENT_ID = "admin-tool"; $env:ADMIN_CLIENT_SECRET = "<admin-tool-secret>"
+$env:ADMIN_CLIENT_ID = "theeyebeta-prod-admin"; $env:ADMIN_CLIENT_SECRET = "<theeyebeta-prod-admin-secret>"
 python scripts/other_end_e2e_test.py
 ```
 
