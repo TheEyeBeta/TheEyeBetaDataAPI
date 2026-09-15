@@ -70,8 +70,12 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
     background: var(--surface); border: 1px solid var(--border); color: var(--text);
     padding: 9px 12px; border-radius: var(--radius); font-size: 13px; font-family: inherit;
   }
-  .auth-bar input[type="password"] { flex: 1; min-width: 220px; }
+  .auth-bar .cred { width: 200px; min-width: 140px; }
+  .auth-bar .cred-wide { flex: 1; min-width: 180px; }
   .auth-bar input:focus, .field input:focus, .field select:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary-glow); }
+  .auth-advanced { width: 100%; display: none; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 4px; }
+  .auth-advanced.open { display: flex; }
+  .auth-hint { font-size: 11px; color: var(--text-muted); width: 100%; }
 
   .btn {
     display: inline-flex; align-items: center; justify-content: center; gap: 6px;
@@ -214,15 +218,26 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
   </div>
 </div>
 
-<div class="auth-bar">
-  <input type="password" id="token-input" placeholder="Paste bearer token (admin:read; admin:write for controls)" autocomplete="off">
-  <button class="btn btn-primary" onclick="authenticate()">Connect</button>
+<div class="auth-bar" id="auth-bar">
+  <input type="text" class="cred" id="client-id-input" placeholder="Client ID (e.g. admin-tool-production)" autocomplete="username">
+  <input type="password" class="cred-wide" id="client-secret-input" placeholder="Client secret" autocomplete="current-password">
+  <button class="btn btn-primary" id="btn-signin" onclick="signIn()">Sign in</button>
+  <button class="btn btn-ghost" id="btn-signout" onclick="signOut()" style="display:none">Sign out</button>
   <span id="auth-status" class="muted"></span>
-  <div style="margin-left:auto;display:flex;gap:8px;align-items:center;">
+  <div style="margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+    <label class="muted" style="display:flex;align-items:center;gap:6px;font-size:12px;">
+      <input type="checkbox" id="remember-session" checked> Keep signed in (this browser tab)
+    </label>
+    <button class="btn btn-ghost" type="button" onclick="toggleAdvancedAuth()">Advanced</button>
     <label class="muted" style="display:flex;align-items:center;gap:6px;font-size:12px;">
       <input type="checkbox" id="auto-refresh-toggle" onchange="toggleAutoRefresh()"> Auto 30s
     </label>
     <button class="btn btn-ghost" onclick="refreshAll()">Refresh</button>
+  </div>
+  <div class="auth-hint">Official login: service client credentials → <code>/api/v1/auth/service-token</code>. Save the secret once in your password manager; no SSH minting each visit.</div>
+  <div class="auth-advanced" id="auth-advanced">
+    <input type="password" class="cred-wide" id="token-input" placeholder="Or paste bearer token" autocomplete="off">
+    <button class="btn btn-secondary" onclick="authenticateWithToken()">Use token</button>
   </div>
 </div>
 
@@ -353,24 +368,161 @@ const PRODUCT_CLIENTS = {
   'admin-tool': { product: 'Admin Frontend', kind: 'related' },
 };
 
-let TOKEN = localStorage.getItem('dataapi_admin_token') || '';
+const SESSION_KEY = 'dataapi_ops_session';
+const CLIENT_ID_KEY = 'dataapi_ops_client_id';
+
+let TOKEN = '';
+let TOKEN_EXPIRES_AT = 0;
+let CLIENT_ID = localStorage.getItem(CLIENT_ID_KEY) || 'admin-tool-production';
+let CLIENT_SECRET = '';
 let CAN_WRITE = false;
 let autoRefreshTimer = null;
+let tokenRenewTimer = null;
 let cache = { dashboard: null, etl: null, engine: null, accounts: null, tables: [] };
 
-if (TOKEN) document.getElementById('token-input').value = TOKEN;
+document.getElementById('client-id-input').value = CLIENT_ID;
+restoreSession();
 
-function showTab(name) {
-  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
-  document.querySelectorAll('.panel').forEach(p => p.classList.toggle('active', p.id === 'panel-' + name));
-  if (name === 'accounts' && TOKEN) loadAccounts();
-  if (name === 'telemetry' && TOKEN) loadTelemetryExtras();
+function toggleAdvancedAuth() {
+  document.getElementById('auth-advanced').classList.toggle('open');
 }
 
 function setAuthStatus(msg, color) {
   const el = document.getElementById('auth-status');
   el.textContent = msg;
   el.style.color = color === 'green' ? 'var(--accent)' : (color === 'red' ? 'var(--red)' : 'var(--text-muted)');
+}
+
+function setSignedInUi(signedIn) {
+  document.getElementById('btn-signout').style.display = signedIn ? '' : 'none';
+  document.getElementById('btn-signin').style.display = signedIn ? 'none' : '';
+  document.getElementById('client-secret-input').disabled = signedIn;
+  document.getElementById('client-id-input').disabled = signedIn;
+}
+
+function restoreSession() {
+  try {
+    const raw = sessionStorage.getItem(SESSION_KEY);
+    if (!raw) return;
+    const s = JSON.parse(raw);
+    if (s.access_token && s.expires_at && Date.now() < s.expires_at - 5000) {
+      TOKEN = s.access_token;
+      TOKEN_EXPIRES_AT = s.expires_at;
+      CLIENT_ID = s.client_id || CLIENT_ID;
+      CLIENT_SECRET = s.client_secret || '';
+      document.getElementById('client-id-input').value = CLIENT_ID;
+      if (CLIENT_SECRET) document.getElementById('client-secret-input').value = CLIENT_SECRET;
+      setSignedInUi(true);
+      scheduleTokenRenewal();
+    }
+  } catch (_) {}
+}
+
+function persistSession() {
+  if (!document.getElementById('remember-session').checked) {
+    sessionStorage.removeItem(SESSION_KEY);
+    return;
+  }
+  sessionStorage.setItem(SESSION_KEY, JSON.stringify({
+    access_token: TOKEN,
+    expires_at: TOKEN_EXPIRES_AT,
+    client_id: CLIENT_ID,
+    client_secret: CLIENT_SECRET,
+  }));
+  localStorage.setItem(CLIENT_ID_KEY, CLIENT_ID);
+}
+
+function clearSession() {
+  TOKEN = '';
+  TOKEN_EXPIRES_AT = 0;
+  CLIENT_SECRET = '';
+  sessionStorage.removeItem(SESSION_KEY);
+  if (tokenRenewTimer) { clearTimeout(tokenRenewTimer); tokenRenewTimer = null; }
+  setSignedInUi(false);
+  document.getElementById('live-dot').style.display = 'none';
+  document.getElementById('client-secret-input').value = '';
+}
+
+function scheduleTokenRenewal() {
+  if (tokenRenewTimer) { clearTimeout(tokenRenewTimer); tokenRenewTimer = null; }
+  if (!CLIENT_SECRET || !TOKEN_EXPIRES_AT) return;
+  const ms = Math.max(15000, TOKEN_EXPIRES_AT - Date.now() - 90000);
+  tokenRenewTimer = setTimeout(() => { renewToken().catch(() => {}); }, ms);
+}
+
+async function renewToken() {
+  if (!CLIENT_ID || !CLIENT_SECRET) return;
+  await issueServiceToken(CLIENT_ID, CLIENT_SECRET, false);
+  await refreshAll();
+}
+
+async function issueServiceToken(clientId, clientSecret, showStatus) {
+  const basic = btoa(unescape(encodeURIComponent(clientId + ':' + clientSecret)));
+  const resp = await fetch('/api/v1/auth/service-token', {
+    method: 'POST',
+    headers: {
+      'Authorization': 'Basic ' + basic,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ requested_scopes: ['admin:read', 'admin:write'] }),
+  });
+  const body = await resp.text();
+  let data = null;
+  try { data = JSON.parse(body); } catch (_) {}
+  if (!resp.ok) {
+    const msg = data?.error?.message || data?.detail || body || ('HTTP ' + resp.status);
+    throw new Error(msg);
+  }
+  TOKEN = data.access_token;
+  const expiresIn = Number(data.expires_in || 3600);
+  TOKEN_EXPIRES_AT = Date.now() + expiresIn * 1000;
+  CLIENT_ID = clientId;
+  CLIENT_SECRET = clientSecret;
+  persistSession();
+  setSignedInUi(true);
+  scheduleTokenRenewal();
+  if (showStatus !== false) {
+    setAuthStatus('Signed in as ' + clientId + ' (token ~' + Math.round(expiresIn / 60) + 'm)', 'green');
+  }
+}
+
+async function signIn() {
+  const clientId = document.getElementById('client-id-input').value.trim();
+  const clientSecret = document.getElementById('client-secret-input').value;
+  if (!clientId || !clientSecret) {
+    setAuthStatus('Client ID and secret required', 'red');
+    return;
+  }
+  setAuthStatus('Signing in…', '');
+  try {
+    await issueServiceToken(clientId, clientSecret, true);
+    await refreshAll();
+  } catch (e) {
+    setAuthStatus('Sign in failed: ' + e.message, 'red');
+    clearSession();
+  }
+}
+
+function signOut() {
+  clearSession();
+  setAuthStatus('Signed out', '');
+}
+
+function authenticateWithToken() {
+  TOKEN = document.getElementById('token-input').value.trim();
+  if (!TOKEN) { setAuthStatus('Token required', 'red'); return; }
+  CLIENT_SECRET = '';
+  TOKEN_EXPIRES_AT = Date.now() + 55 * 60 * 1000;
+  persistSession();
+  setSignedInUi(true);
+  refreshAll();
+}
+
+function showTab(name) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+  document.querySelectorAll('.panel').forEach(p => p.classList.toggle('active', p.id === 'panel-' + name));
+  if (name === 'accounts' && TOKEN) loadAccounts();
+  if (name === 'telemetry' && TOKEN) loadTelemetryExtras();
 }
 
 function escapeHtml(str) {
@@ -400,13 +552,6 @@ async function apiFetch(path, opts = {}) {
   try { return JSON.parse(body); } catch (_) { return body; }
 }
 
-function authenticate() {
-  TOKEN = document.getElementById('token-input').value.trim();
-  if (!TOKEN) { setAuthStatus('Token required', 'red'); return; }
-  localStorage.setItem('dataapi_admin_token', TOKEN);
-  refreshAll();
-}
-
 function toggleAutoRefresh() {
   if (autoRefreshTimer) { clearInterval(autoRefreshTimer); autoRefreshTimer = null; }
   if (document.getElementById('auto-refresh-toggle').checked) {
@@ -427,8 +572,9 @@ async function loadDashboard() {
     const data = await apiFetch('/api/v1/admin/dashboard-data');
     cache.dashboard = data;
     cache.tables = data.tables || [];
-    setAuthStatus('Connected (admin:read)', 'green');
+    setAuthStatus('Signed in · ' + (CLIENT_ID || 'token') + ' (admin:read+)', 'green');
     document.getElementById('live-dot').style.display = 'inline-block';
+    setSignedInUi(true);
     document.getElementById('timestamp').textContent = new Date(data.timestamp).toLocaleString();
     renderOverview(data);
     renderConnections(data.service_clients || []);

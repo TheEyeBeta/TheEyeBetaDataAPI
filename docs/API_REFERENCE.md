@@ -1370,11 +1370,19 @@ does not grant it). The HTML dashboard page is the only unauthenticated exceptio
 
 ### `GET /api/v1/admin/dashboard`
 
-Serves the DataAPI **ops viewer/controller** as an HTML page (Admin Frontend dark/amber look). Open in a browser, paste a bearer token with `admin:read` (and `admin:write` for account controls), and click **Connect**.
+Serves the DataAPI **ops viewer/controller** as an HTML page (Admin Frontend dark/amber look).
+
+**Sign in (official):** enter an IAM service **Client ID** + **Client secret** (e.g.
+`admin-tool-production`). The page exchanges them via `POST /api/v1/auth/service-token`
+for `admin:read` / `admin:write`, keeps the session in the browser tab, and renews the
+JWT before expiry. Mint the secret once with `iam.issue_service_api_key` and store it in
+a password manager.
+
+**Advanced:** paste a bearer token manually.
 
 Tabs: Overview (product gates for Lens + Admin Frontend), Connections, Telemetry / data flow (ETL, workers, engine status), Tables, Accounts (list / create / block), Query.
 
-No auth header required for this endpoint itself — data calls use the pasted token.
+No auth header required for this endpoint itself — data calls use the signed-in token.
 
 ---
 
