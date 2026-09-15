@@ -12,7 +12,12 @@ live outside this repo.
 
 See [`docs/IAM_CONSUMER_INVENTORY.md`](docs/IAM_CONSUMER_INVENTORY.md). The `vi-app` name in examples is a **template / legacy IAM row**, not an active product.
 
-**Ops viewer:** open `GET /api/v1/admin/dashboard` in a browser with an `admin:read` (and optionally `admin:write`) token — connections, telemetry/data flow, tables, and account create/block.
+**Ops viewer:** open `GET /api/v1/admin/dashboard` and **Sign in** with an admin service
+client ID + secret (e.g. `admin-tool-production`). The page calls
+`POST /api/v1/auth/service-token` and renews the JWT while the tab stays open.
+Mint the client secret once on the Mac (`iam.issue_service_api_key`) and keep it in a
+password manager — do not SSH-mint a token every visit. See
+[`docs/OPS_DASHBOARD_LOGIN.md`](docs/OPS_DASHBOARD_LOGIN.md).
 
 ## Architecture model
 
