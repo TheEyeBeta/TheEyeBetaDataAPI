@@ -22,13 +22,18 @@ def test_decode_user_token_with_jwks(monkeypatch) -> None:
 
     monkeypatch.setattr("app.auth.tokens._get_jwks_client", lambda: _FakeJwksClient())
 
-    def _fake_decode(token, key, algorithms, issuer, audience):  # noqa: ANN001, ANN201
+    def _fake_decode(token, key, algorithms=None, options=None, issuer=None, audience=None, **kwargs):  # noqa: ANN001, ANN201
         assert token == "fake-jwt-token"
         assert key == "fake-public-key"
         assert algorithms == ["RS256"]
-        assert issuer == "https://issuer.example"
-        assert audience == "dataapi-audience"
-        return {"sub": "user-jwks-1", "scope": "market:read advisor:read"}
+        # Grace flag default is False — issuer/audience are not passed until required.
+        assert "require" in (options or {})
+        return {
+            "sub": "user-jwks-1",
+            "scope": "market:read advisor:read",
+            "iat": 1,
+            "exp": 9_999_999_999,
+        }
 
     monkeypatch.setattr("app.auth.tokens.jwt.decode", _fake_decode)
 

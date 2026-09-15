@@ -117,19 +117,19 @@ def test_verify_user_api_key_success() -> None:
 
 
 @pytest.mark.parametrize(
-    ("mutation", "reason"),
+    ("mutation", "reason", "message"),
     [
-        ({"key_enabled": False}, "key_revoked"),
-        ({"is_expired": True}, "key_expired"),
-        ({"user_active": False}, "user_inactive"),
+        ({"key_enabled": False}, "key_revoked", "Invalid API key"),
+        ({"is_expired": True}, "key_expired", "API key expired"),
+        ({"user_active": False}, "user_inactive", "Invalid API key"),
     ],
 )
-def test_verify_user_api_key_rejects_and_audits(mutation: dict, reason: str) -> None:
+def test_verify_user_api_key_rejects_and_audits(mutation: dict, reason: str, message: str) -> None:
     row = _success_row()
     row.update(mutation)
     session = _FakeSession(row)
 
-    with pytest.raises(AuthenticationError):
+    with pytest.raises(AuthenticationError, match=message):
         verify_user_api_key(VALID_KEY, session=session, client_ip="203.0.113.10")
 
     event = [(sql, params) for sql, params in session.executed if "user_api_key_events" in sql]

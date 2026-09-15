@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from typing import Any
 from uuid import uuid4
 
 import jwt
@@ -26,6 +27,75 @@ def _parse_scopes(claims: dict) -> frozenset[str]:
     return frozenset()
 
 
+def _decode_options(*, require_iss_aud: bool) -> dict[str, Any]:
+    """Build PyJWT options: always require exp+iat; iss/aud gated by flag.
+
+    When iss/aud are not required, explicitly disable verification so tokens that
+    *do* carry those claims (current issuers) still validate without an
+    audience= / issuer= argument.
+    """
+    required = ["exp", "iat"]
+    if require_iss_aud:
+        required.extend(["iss", "aud"])
+    return {
+        "require": required,
+        "verify_iss": require_iss_aud,
+        "verify_aud": require_iss_aud,
+    }
+
+
+def decode_signed_claims(
+    token: str,
+    *,
+    key: Any | None = None,
+    keys: list[Any] | None = None,
+    algorithms: list[str],
+    issuer: str | None = None,
+    audience: str | None = None,
+    require_iss_aud: bool | None = None,
+) -> dict[str, Any]:
+    """Decode a JWT with an explicit algorithm allowlist and claim requirements.
+
+    Pass either ``key`` (single) or ``keys`` (ordered verify list: current then
+    previous). ``algorithms`` must be a non-empty allowlist.
+    """
+    if not algorithms:
+        raise AuthenticationError("JWT algorithm allowlist is empty")
+
+    candidates: list[Any]
+    if keys is not None:
+        candidates = [k for k in keys if k is not None and k != ""]
+    elif key is not None and key != "":
+        candidates = [key]
+    else:
+        raise AuthenticationError("JWT verification key not configured")
+    if not candidates:
+        raise AuthenticationError("JWT verification key not configured")
+
+    enforce_iss_aud = (
+        settings.jwt_require_iss_aud if require_iss_aud is None else require_iss_aud
+    )
+    options = _decode_options(require_iss_aud=enforce_iss_aud)
+    kwargs: dict[str, Any] = {
+        "algorithms": algorithms,
+        "options": options,
+    }
+    if enforce_iss_aud:
+        if not issuer or not audience:
+            raise AuthenticationError("JWT issuer/audience not configured")
+        kwargs["issuer"] = issuer
+        kwargs["audience"] = audience
+
+    last_error: Exception | None = None
+    for candidate in candidates:
+        try:
+            return jwt.decode(token, candidate, **kwargs)
+        except InvalidTokenError as exc:
+            last_error = exc
+            continue
+    raise AuthenticationError("Invalid bearer token") from last_error
+
+
 def create_service_access_token(subject: str, client_id: str, scopes: list[str], expires_minutes: int) -> str:
     """Create an internal service JWT."""
     now = datetime.now(UTC)
@@ -39,7 +109,11 @@ def create_service_access_token(subject: str, client_id: str, scopes: list[str],
         "iss": settings.jwt_issuer,
         "aud": settings.jwt_audience,
     }
-    return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
+    return jwt.encode(
+        payload,
+        settings.effective_jwt_signing_secret,
+        algorithm=settings.jwt_algorithm,
+    )
 
 
 def create_delegated_access_token(
@@ -68,7 +142,11 @@ def create_delegated_access_token(
         "iss": settings.jwt_issuer,
         "aud": settings.jwt_audience,
     }
-    return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
+    return jwt.encode(
+        payload,
+        settings.effective_jwt_signing_secret,
+        algorithm=settings.jwt_algorithm,
+    )
 
 
 def _get_jwks_client() -> PyJWKClient:
@@ -84,14 +162,14 @@ def decode_user_token(token: str) -> Principal | None:
     if settings.user_jwt_jwks_url:
         try:
             signing_key = _get_jwks_client().get_signing_key_from_jwt(token).key
-            claims = jwt.decode(
+            claims = decode_signed_claims(
                 token,
-                signing_key,
+                key=signing_key,
                 algorithms=settings.parsed_user_jwt_algorithms or [settings.user_jwt_algorithm],
                 issuer=settings.user_jwt_issuer or settings.jwt_issuer,
                 audience=settings.user_jwt_audience or settings.jwt_audience,
             )
-        except (InvalidTokenError, PyJWKClientError):
+        except (AuthenticationError, PyJWKClientError):
             return None
         if claims.get("token_use") not in (None, "user"):
             return None
@@ -108,14 +186,14 @@ def decode_user_token(token: str) -> Principal | None:
     if not settings.user_jwt_secret:
         return None
     try:
-        claims = jwt.decode(
+        claims = decode_signed_claims(
             token,
-            settings.user_jwt_secret,
+            keys=settings.user_jwt_verify_secrets,
             algorithms=[settings.user_jwt_algorithm],
-            issuer=settings.jwt_issuer,
-            audience=settings.jwt_audience,
+            issuer=settings.user_jwt_issuer or settings.jwt_issuer,
+            audience=settings.user_jwt_audience or settings.jwt_audience,
         )
-    except InvalidTokenError:
+    except AuthenticationError:
         return None
     if claims.get("token_use") not in (None, "user"):
         return None
@@ -137,14 +215,14 @@ _decode_user_token = decode_user_token
 def _decode_delegated_token(token: str) -> Principal | None:
     """Decode a DataAPI-issued delegated token before user-token fallbacks."""
     try:
-        claims = jwt.decode(
+        claims = decode_signed_claims(
             token,
-            settings.jwt_secret,
+            keys=settings.jwt_verify_secrets,
             algorithms=[settings.jwt_algorithm],
             issuer=settings.jwt_issuer,
             audience=settings.jwt_audience,
         )
-    except InvalidTokenError:
+    except AuthenticationError:
         return None
     if claims.get("token_use") != "delegated":
         return None
@@ -171,14 +249,14 @@ def _decode_delegated_token(token: str) -> Principal | None:
 
 def _decode_service_token(token: str) -> Principal | None:
     try:
-        claims = jwt.decode(
+        claims = decode_signed_claims(
             token,
-            settings.jwt_secret,
+            keys=settings.jwt_verify_secrets,
             algorithms=[settings.jwt_algorithm],
             issuer=settings.jwt_issuer,
             audience=settings.jwt_audience,
         )
-    except InvalidTokenError:
+    except AuthenticationError:
         return None
     if claims.get("token_use") != "service":
         return None

@@ -10,7 +10,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     """Runtime configuration loaded from environment variables."""
 
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=".env", env_file_encoding="utf-8", extra="ignore"
+    )
 
     app_name: str = "TheEyeBetaDataAPI"
     app_version: str = "0.1.0"
@@ -19,12 +21,17 @@ class Settings(BaseSettings):
     debug: bool = False
 
     database_url: str
+    # DataAPI-issued token signing secret (service + delegated JWTs).
+    # Prefer JWT_SIGNING_SECRET_CURRENT; JWT_SECRET remains the backwards-compatible alias.
     jwt_secret: str
+    jwt_signing_secret_current: str | None = None
+    jwt_signing_secret_previous: str | None = None
     jwt_algorithm: str = "HS256"
     jwt_issuer: str = "theeyebeta-dataapi"
     jwt_audience: str = "theeyebeta-clients"
 
     user_jwt_secret: str | None = None
+    user_jwt_secret_previous: str | None = None
     user_jwt_algorithm: str = "HS256"
     user_jwt_jwks_url: str | None = None
     user_jwt_issuer: str | None = None
@@ -33,6 +40,16 @@ class Settings(BaseSettings):
 
     service_token_expires_minutes: int = 60
     delegated_token_expires_minutes: int = 5
+    # When false (default), iss/aud may be absent on inbound JWTs (grace period).
+    # When true, every decode path requires and validates iss + aud.
+    # Flip to true only after docs/IAM_CONSUMER_INVENTORY.md open questions are closed.
+    jwt_require_iss_aud: bool = False
+    # Phase 3: opted-in clients get this access-token TTL + a refresh token.
+    short_lived_access_token_minutes: int = 15
+    refresh_token_expires_days: int = 30
+    # Phase 5: user API key lifetime policy.
+    user_api_key_max_expires_days: int = 365
+    user_api_key_backfill_days: int = 180
     service_client_auth_mode: str = "database"
     service_clients_json: str = "{}"
     service_mtls_enabled: bool = False
@@ -46,6 +63,9 @@ class Settings(BaseSettings):
 
     openai_api_key: str | None = None
     openai_model: str = "gpt-4o-mini"
+    # Phase 5: user API key lifetime policy (provisioning / backfill).
+    user_api_key_max_expires_days: int = 365
+    user_api_key_backfill_days: int = 180
 
     api_host: str = "127.0.0.1"
     api_port: int = 7000
@@ -81,13 +101,18 @@ class Settings(BaseSettings):
             raise ValueError("secret values must be at least 24 characters")
         return value
 
-    @field_validator("user_jwt_secret")
+    @field_validator(
+        "jwt_signing_secret_current",
+        "jwt_signing_secret_previous",
+        "user_jwt_secret",
+        "user_jwt_secret_previous",
+    )
     @classmethod
-    def validate_user_secret_length(cls, value: str | None) -> str | None:
+    def validate_optional_secret_length(cls, value: str | None) -> str | None:
         if value is None or value == "":
             return None
         if len(value.strip()) < 24:
-            raise ValueError("user_jwt_secret must be at least 24 characters when set")
+            raise ValueError("optional JWT secrets must be at least 24 characters when set")
         return value
 
     @field_validator("api_port")
@@ -109,6 +134,27 @@ class Settings(BaseSettings):
     def validate_delegated_token_ttl(cls, value: int) -> int:
         if value < 1 or value > 15:
             raise ValueError("delegated_token_expires_minutes must be between 1 and 15")
+        return value
+
+    @field_validator("short_lived_access_token_minutes")
+    @classmethod
+    def validate_short_lived_ttl(cls, value: int) -> int:
+        if value < 1 or value > 60:
+            raise ValueError("short_lived_access_token_minutes must be between 1 and 60")
+        return value
+
+    @field_validator("refresh_token_expires_days")
+    @classmethod
+    def validate_refresh_ttl_days(cls, value: int) -> int:
+        if value < 1 or value > 365:
+            raise ValueError("refresh_token_expires_days must be between 1 and 365")
+        return value
+
+    @field_validator("user_api_key_max_expires_days", "user_api_key_backfill_days")
+    @classmethod
+    def validate_user_api_key_days(cls, value: int) -> int:
+        if value < 1 or value > 3650:
+            raise ValueError("user API key day settings must be between 1 and 3650")
         return value
 
     @field_validator("admin_gateway_timeout_seconds", "admin_gateway_max_body_bytes")
@@ -150,7 +196,9 @@ class Settings(BaseSettings):
                 raise ValueError("TRUSTED_HOSTS cannot include '*' in production")
             if "*" in self.parsed_cors_origins:
                 raise ValueError("CORS_ORIGINS cannot include '*' in production")
-            if self.user_jwt_jwks_url and not self.user_jwt_jwks_url.startswith("https://"):
+            if self.user_jwt_jwks_url and not self.user_jwt_jwks_url.startswith(
+                "https://"
+            ):
                 raise ValueError("USER_JWT_JWKS_URL must be https:// in production")
         if self.service_mtls_enabled and not self.trust_proxy_headers:
             raise ValueError("SERVICE_MTLS_ENABLED requires TRUST_PROXY_HEADERS=true")
@@ -161,7 +209,9 @@ class Settings(BaseSettings):
                 "localhost",
                 "::1",
             }:
-                raise ValueError("ADMIN_SERVICE_URL must be an http loopback URL when gateway is enabled")
+                raise ValueError(
+                    "ADMIN_SERVICE_URL must be an http loopback URL when gateway is enabled"
+                )
         if self.environment == "production" and not self.policy_enforcement_enabled:
             raise ValueError("POLICY_ENFORCEMENT_ENABLED must be true in production")
         if self.service_client_auth_mode in {"environment", "hybrid"}:
@@ -173,7 +223,14 @@ class Settings(BaseSettings):
     @property
     def parsed_cors_origins(self) -> list[str]:
         """Return comma-separated CORS origins as a list."""
-        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+        application_origins = [
+            "https://admin.theeyebeta.store",
+            "http://tauri.localhost",
+            "https://tauri.localhost",
+            "tauri://localhost",
+        ]
+        configured = [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+        return list(dict.fromkeys([*application_origins, *configured]))
 
     @property
     def parsed_trusted_hosts(self) -> list[str]:
@@ -205,7 +262,9 @@ class Settings(BaseSettings):
             try:
                 parsed = json.loads(raw)
             except (TypeError, json.JSONDecodeError) as exc:
-                raise ValueError("service_mtls_subjects_json must be valid JSON") from exc
+                raise ValueError(
+                    "service_mtls_subjects_json must be valid JSON"
+                ) from exc
         if not isinstance(parsed, dict):
             raise ValueError("service_mtls_subjects_json must be a JSON object")
 
@@ -216,16 +275,56 @@ class Settings(BaseSettings):
             elif isinstance(subjects, list):
                 values = [str(value) for value in subjects]
             else:
-                raise ValueError("service_mtls_subjects_json values must be string or string array")
+                raise ValueError(
+                    "service_mtls_subjects_json values must be string or string array"
+                )
             cleaned = [value.strip() for value in values if value.strip()]
             if cleaned:
                 normalized[str(client_id)] = cleaned
         return normalized
 
     @property
+    def effective_jwt_signing_secret(self) -> str:
+        """Secret used to sign new service/delegated tokens."""
+        return self.jwt_signing_secret_current or self.jwt_secret
+
+    @property
+    def jwt_verify_secrets(self) -> list[str]:
+        """Ordered secrets for verifying DataAPI-issued JWTs (current, then previous)."""
+        secrets = [self.effective_jwt_signing_secret]
+        previous = self.jwt_signing_secret_previous
+        if previous and previous not in secrets:
+            secrets.append(previous)
+        return secrets
+
+    @property
+    def user_jwt_verify_secrets(self) -> list[str]:
+        """Ordered secrets for verifying symmetric user JWTs (current, then previous)."""
+        secrets: list[str] = []
+        if self.user_jwt_secret:
+            secrets.append(self.user_jwt_secret)
+        if self.user_jwt_secret_previous and self.user_jwt_secret_previous not in secrets:
+            secrets.append(self.user_jwt_secret_previous)
+        return secrets
+
+    @property
     def parsed_user_jwt_algorithms(self) -> list[str]:
         """Return user JWT algorithms list."""
-        return [alg.strip() for alg in self.user_jwt_algorithms.split(",") if alg.strip()]
+        return [
+            alg.strip() for alg in self.user_jwt_algorithms.split(",") if alg.strip()
+        ]
+
+    @property
+    def openapi_docs_enabled(self) -> bool:
+        """Expose /docs, /redoc, and /openapi.json outside production only."""
+        return self.environment != "production"
+
+
+def openapi_route_kwargs(environment: str) -> dict[str, str | None]:
+    """Return FastAPI docs/OpenAPI URL kwargs for the given environment."""
+    if environment == "production":
+        return {"docs_url": None, "redoc_url": None, "openapi_url": None}
+    return {"docs_url": "/docs", "redoc_url": "/redoc", "openapi_url": "/openapi.json"}
 
 
 settings = Settings()

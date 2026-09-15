@@ -29,7 +29,7 @@ from app.api.routes.signals import router as signals_router
 from app.api.routes.symbols import router as symbols_router
 from app.api.routes.tickers import router as tickers_router
 from app.api.routes.universe import router as universe_router
-from app.core.config import settings
+from app.core.config import openapi_route_kwargs, settings
 from app.core.logging import setup_logging
 from app.core.rate_limit import RateLimitMiddleware
 from app.core.request_context import RequestContextMiddleware
@@ -42,6 +42,7 @@ setup_logging()
 async def lifespan(_application: FastAPI):
     yield
     from app.db.session import engine
+
     engine.dispose()
 
 
@@ -50,6 +51,7 @@ app = FastAPI(
     version=settings.app_version,
     description="Internet-exposed AI Data API with allowlisted database access.",
     lifespan=lifespan,
+    **openapi_route_kwargs(settings.environment),
 )
 
 Instrumentator(
@@ -63,6 +65,9 @@ app.add_middleware(RateLimitMiddleware)
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.parsed_trusted_hosts)
 
 if settings.parsed_cors_origins:
+    # Never combine wildcard origins with credentialed CORS (browser CSRF risk).
+    if "*" in settings.parsed_cors_origins:
+        raise RuntimeError("CORS allow_origins must not include '*' when credentials are enabled")
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.parsed_cors_origins,
@@ -73,6 +78,7 @@ if settings.parsed_cors_origins:
             "Content-Type",
             "X-Request-ID",
             "Idempotency-Key",
+            "X-Idempotency-Key",
             "X-Confirm",
             "X-Dry-Run",
             "X-CSRF-Token",

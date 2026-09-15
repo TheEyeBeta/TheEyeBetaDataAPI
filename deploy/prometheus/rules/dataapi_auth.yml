@@ -1,0 +1,46 @@
+groups:
+  - name: dataapi_auth
+    rules:
+      - alert: DataAPIAuthFailureSpike
+        expr: |
+          sum(increase(http_requests_total{job="dataapi",handler=~"/api/v1/auth/.*",status=~"401|403"}[5m])) > 50
+        for: 5m
+        labels:
+          severity: warning
+          service: theeyebeta-dataapi
+        annotations:
+          summary: "DataAPI auth failure spike"
+          description: >-
+            More than 50 HTTP 401/403 responses on /api/v1/auth/* in 5 minutes
+            (job={{ $labels.job }}). Check journalctl --user -u theeyebeta-dataapi
+            and iam.auth_audit_log.
+
+      - alert: DataAPIAuthEndpoint5xx
+        expr: |
+          sum(increase(http_requests_total{job="dataapi",handler=~"/api/v1/auth/.*",status=~"5.."}[5m])) > 5
+        for: 5m
+        labels:
+          severity: critical
+          service: theeyebeta-dataapi
+        annotations:
+          summary: "DataAPI auth endpoint 5xx"
+          description: >-
+            More than 5 HTTP 5xx responses on /api/v1/auth/* in 5 minutes.
+            Token issuance/refresh may be unhealthy.
+
+      # Refresh-token reuse is primarily detected in application logs today
+      # ("Refresh token already used or revoked"). This rule watches for an
+      # elevated 401 rate on the refresh route as a coarse proxy until a
+      # dedicated counter is added.
+      - alert: DataAPIRefreshAuthFailures
+        expr: |
+          sum(increase(http_requests_total{job="dataapi",handler="/api/v1/auth/refresh",status="401"}[15m])) > 10
+        for: 10m
+        labels:
+          severity: warning
+          service: theeyebeta-dataapi
+        annotations:
+          summary: "Elevated /api/v1/auth/refresh 401s"
+          description: >-
+            Possible refresh-token reuse or client misconfiguration. Correlate
+            with journald lines containing "Refresh token already used or revoked".

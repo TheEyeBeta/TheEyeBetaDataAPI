@@ -43,6 +43,14 @@ def _parse_args() -> argparse.Namespace:
         help="Additional scope grant. May be repeated.",
     )
     parser.add_argument(
+        "--least-privilege",
+        action="store_true",
+        help=(
+            "New clients only: after insert, drop template default scopes and keep "
+            "only explicitly requested --scope values. Existing clients unchanged."
+        ),
+    )
+    parser.add_argument(
         "--secret",
         default="",
         help="Optional explicit API key secret to store. If omitted, DB generates one.",
@@ -78,7 +86,8 @@ def _expires_at(days: int) -> datetime | None:
     return datetime.now(UTC) + timedelta(days=days)
 
 
-def _upsert_client(session, args: argparse.Namespace) -> str:
+def _upsert_client(session, args: argparse.Namespace) -> tuple[str, bool]:
+    """Return (client_uuid, created_new)."""
     existing = (
         session.execute(
             text(
@@ -119,7 +128,7 @@ def _upsert_client(session, args: argparse.Namespace) -> str:
                 "client_uuid": existing["client_uuid"],
             },
         )
-        return str(existing["client_uuid"])
+        return str(existing["client_uuid"]), False
 
     created = (
         session.execute(
@@ -156,7 +165,28 @@ def _upsert_client(session, args: argparse.Namespace) -> str:
         .mappings()
         .one()
     )
-    return str(created["client_uuid"])
+    return str(created["client_uuid"]), True
+
+
+def _apply_least_privilege_scopes(
+    session,
+    client_uuid: str,
+    scopes: list[str],
+    created_by: str,
+) -> None:
+    """Replace template defaults with only the explicitly requested scopes."""
+    if not scopes:
+        raise ValueError("--least-privilege requires at least one --scope")
+    session.execute(
+        text(
+            """
+            DELETE FROM iam.service_client_scopes
+            WHERE client_uuid = CAST(:client_uuid AS uuid)
+            """
+        ),
+        {"client_uuid": client_uuid},
+    )
+    _grant_manual_scopes(session, client_uuid, scopes, created_by)
 
 
 def _grant_manual_scopes(session, client_uuid: str, scopes: list[str], created_by: str) -> None:
@@ -295,8 +325,11 @@ def main() -> int:
     expires_at = _expires_at(args.expires_days)
     session = get_db_session()
     try:
-        client_uuid = _upsert_client(session, args)
-        _grant_manual_scopes(session, client_uuid, manual_scopes, args.created_by)
+        client_uuid, created_new = _upsert_client(session, args)
+        if created_new and args.least_privilege:
+            _apply_least_privilege_scopes(session, client_uuid, manual_scopes, args.created_by)
+        else:
+            _grant_manual_scopes(session, client_uuid, manual_scopes, args.created_by)
         if not args.keep_existing_secrets:
             _deactivate_existing_secrets(session, client_uuid, args.created_by)
         secret, prefix = _issue_secret(session, args, client_uuid, expires_at)
@@ -317,6 +350,7 @@ def main() -> int:
                 "secret": secret,
                 "scopes": scopes,
                 "expires_at": expires_at.isoformat() if expires_at else None,
+                "least_privilege": bool(created_new and args.least_privilege),
             },
             indent=2,
         )

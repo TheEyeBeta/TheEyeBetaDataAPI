@@ -114,6 +114,17 @@ RETURNS trigger
 LANGUAGE plpgsql
 AS $$
 BEGIN
+    -- When the client type opts into least-privilege defaults, skip template scopes
+    -- so only explicitly granted scopes remain (see deploy/iam_auth_audit.sql).
+    IF EXISTS (
+        SELECT 1
+        FROM iam.client_types ct
+        WHERE ct.app_type = NEW.app_type
+          AND COALESCE(ct.least_privilege_default, false) = true
+    ) THEN
+        RETURN NEW;
+    END IF;
+
     INSERT INTO iam.service_client_scopes (client_uuid, scope, grant_source, granted_by)
     SELECT
         NEW.client_uuid,
