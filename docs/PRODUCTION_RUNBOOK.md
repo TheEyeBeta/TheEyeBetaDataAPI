@@ -66,13 +66,17 @@ ss -ltnp | rg ':7000'
 curl -s http://127.0.0.1:7000/health
 ```
 
-Service credentials flow:
+Product consumers to verify (release gates): **Lens** (`ai-advisor-production`) and
+**TheEyeBetaAdmin Frontend** (gateway + `theeyebeta-prod-admin`). See
+[`IAM_CONSUMER_INVENTORY.md`](IAM_CONSUMER_INVENTORY.md). `vi-app` is template/legacy only.
+
+Lens / advisor service credentials:
 
 ```bash
 TOKEN=$(curl -s -X POST "http://127.0.0.1:7000/api/v1/auth/service-token" \
-  -u "vi-app:<SERVICE_SECRET>" \
+  -u "ai-advisor-production:<SERVICE_SECRET>" \
   -H "Content-Type: application/json" \
-  -d '{"requested_scopes":["market:read","advisor:read"]}' \
+  -d '{"requested_scopes":["market:read","advisor:read","signals:read","symbols:read"]}' \
   | sed -n 's/.*"access_token":"\([^"]*\)".*/\1/p')
 ```
 
@@ -86,18 +90,31 @@ curl -s "http://127.0.0.1:7000/api/v1/advisor/context?ticker=AAPL" \
   -H "Authorization: Bearer ${TOKEN}"
 ```
 
-Read-only table API check:
+Admin Frontend gateway (unauthenticated — expect 401 when up):
 
 ```bash
-curl -s "http://127.0.0.1:7000/api/v1/data/tables/latest_snapshots/rows?symbol=AAPL&limit=1" \
-  -H "Authorization: Bearer ${TOKEN}"
+curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:7000/admin/auth/me
+curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:7000/admin/terminal-data/modules
+```
+
+Admin data-bridge client (server-side, not the browser):
+
+```bash
+ADMIN_TOKEN=$(curl -s -X POST "http://127.0.0.1:7000/api/v1/auth/service-token" \
+  -u "theeyebeta-prod-admin:<SERVICE_SECRET>" \
+  -H "Content-Type: application/json" \
+  -d '{"requested_scopes":["market:read","symbols:read"]}' \
+  | sed -n 's/.*"access_token":"\([^"]*\)".*/\1/p')
+
+curl -s "http://127.0.0.1:7000/api/v1/market-data/quotes?symbols=AAPL" \
+  -H "Authorization: Bearer ${ADMIN_TOKEN}"
 ```
 
 Remote smoke:
 
 ```bash
 API_BASE_URL="https://dataapiprod.theeyebeta.store" \
-SERVICE_CLIENT_ID="vi-app" \
+SERVICE_CLIENT_ID="ai-advisor-production" \
 SERVICE_CLIENT_SECRET="<SERVICE_SECRET>" \
 bash scripts/verify_remote_access.sh
 ```
@@ -110,7 +127,7 @@ bash scripts/verify_remote_access.sh
   - Follow [`SECRET_ROTATION_RUNBOOK.md`](SECRET_ROTATION_RUNBOOK.md)
   - Or `python scripts/rotate_secrets.py` then restart, wait ≥ `SERVICE_TOKEN_EXPIRES_MINUTES`, clear `*_PREVIOUS`
 - Keep service scopes minimal per consumer.
-- Use distinct principals per consumer (mobile backend, VI, trade engine, admin/internal).
+- Use distinct principals per product consumer (Lens, Admin Frontend / admin-service).
 - Require `X-Idempotency-Key` for `/admin/*` write routes.
 - Enable JWKS and mTLS in production when identity provider and proxy are ready.
 - Remove direct public admin ingress only after DataAPI gateway smoke tests prove that MFA, RBAC,
