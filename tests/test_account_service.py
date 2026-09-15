@@ -18,30 +18,46 @@ def _reset_approval_code():
     settings.admin_account_approval_code = original
 
 
-class _FakeMappings:
-    def __init__(self, row: dict | None) -> None:
+class _FakeResult:
+    def __init__(self, row: dict | None = None, rows: list[dict] | None = None) -> None:
         self._row = row
+        self._rows = rows or ([] if row is None else [row])
+
+    def mappings(self) -> "_FakeMappings":
+        return _FakeMappings(self._row, self._rows)
+
+
+class _FakeMappings:
+    def __init__(self, row: dict | None, rows: list[dict] | None = None) -> None:
+        self._row = row
+        self._rows = rows if rows is not None else ([] if row is None else [row])
 
     def first(self) -> dict | None:
         return self._row
 
-
-class _FakeResult:
-    def __init__(self, row: dict | None) -> None:
-        self._row = row
-
-    def mappings(self) -> _FakeMappings:
-        return _FakeMappings(self._row)
+    def all(self) -> list[dict]:
+        return list(self._rows)
 
 
 class _FakeSession:
     """Routes execute() calls by SQL shape; records commit/rollback."""
 
-    def __init__(self, *, insert_row: dict | None = None, update_row: dict | None = None, raise_on_insert: Exception | None = None, raise_on_update: Exception | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        insert_row: dict | None = None,
+        update_row: dict | None = None,
+        list_rows: list[dict] | None = None,
+        raise_on_insert: Exception | None = None,
+        raise_on_update: Exception | None = None,
+        raise_on_select: Exception | None = None,
+    ) -> None:
         self._insert_row = insert_row
         self._update_row = update_row
+        self._list_rows = list_rows or []
         self._raise_on_insert = raise_on_insert
         self._raise_on_update = raise_on_update
+        self._raise_on_select = raise_on_select
         self.executed: list[str] = []
         self.committed = False
         self.rolled_back = False
@@ -57,6 +73,10 @@ class _FakeSession:
             if self._raise_on_update:
                 raise self._raise_on_update
             return _FakeResult(self._update_row)
+        if "FROM iam.users" in sql and "INSERT" not in sql and "UPDATE" not in sql:
+            if self._raise_on_select:
+                raise self._raise_on_select
+            return _FakeResult(rows=self._list_rows)
         # iam.user_api_key_events insert (event log) — no return value needed.
         return _FakeResult(None)
 
@@ -80,6 +100,28 @@ def _new_user_row() -> dict:
         "is_active": True,
         "created_at": None,
     }
+
+
+# --- list_accounts -----------------------------------------------------------
+
+
+def test_list_accounts_returns_rows() -> None:
+    session = _FakeSession(list_rows=[_new_user_row()])
+    service = AccountService(session)
+
+    rows = service.list_accounts(include_inactive=True, limit=50)
+
+    assert len(rows) == 1
+    assert rows[0]["email"] == "new.user@example.com"
+    assert any("FROM iam.users" in sql for sql in session.executed)
+
+
+def test_list_accounts_db_error_maps_to_unavailable() -> None:
+    session = _FakeSession(raise_on_select=SQLAlchemyError("boom"))
+    service = AccountService(session)
+
+    with pytest.raises(DatabaseUnavailableError):
+        service.list_accounts()
 
 
 # --- create_account --------------------------------------------------------

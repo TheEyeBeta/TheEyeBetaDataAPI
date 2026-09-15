@@ -1370,9 +1370,11 @@ does not grant it). The HTML dashboard page is the only unauthenticated exceptio
 
 ### `GET /api/v1/admin/dashboard`
 
-Serves the admin dashboard as an HTML page. Open in a browser, paste a bearer token with `admin:read` scope, and click **Connect**.
+Serves the DataAPI **ops viewer/controller** as an HTML page (Admin Frontend dark/amber look). Open in a browser, paste a bearer token with `admin:read` (and `admin:write` for account controls), and click **Connect**.
 
-No auth header required for this endpoint.
+Tabs: Overview (product gates for Lens + Admin Frontend), Connections, Telemetry / data flow (ETL, workers, engine status), Tables, Accounts (list / create / block), Query.
+
+No auth header required for this endpoint itself — data calls use the pasted token.
 
 ---
 
@@ -1597,6 +1599,40 @@ curl -s "https://dataapiprod.theeyebeta.store/api/v1/admin/price-ticks/AAPL?limi
 
 ---
 
+### `GET /api/v1/admin/accounts`
+
+List end-user accounts (`iam.users`), including inactive/blocked rows by default.
+
+**Scope:** `admin:read`
+
+**Query parameters**
+
+| Param | Type | Default | Description |
+|---|---|---|---|
+| `include_inactive` | bool | `true` | Include soft-blocked (`is_active=false`) accounts |
+| `limit` | int | `200` | Max rows (1–500) |
+
+**Response**
+
+```json
+{
+  "accounts": [
+    {
+      "user_uuid": "b6f0c1a2-...",
+      "email": "user@example.com",
+      "display_name": "User",
+      "organization": null,
+      "plan": "free",
+      "is_active": true,
+      "created_at": "2026-08-05T07:00:00Z"
+    }
+  ],
+  "total": 1
+}
+```
+
+---
+
 ### `POST /api/v1/admin/accounts`
 
 Create an end-user account (`iam.users`).
@@ -1641,9 +1677,9 @@ curl -s -X POST "https://dataapiprod.theeyebeta.store/api/v1/admin/accounts" \
 
 ### `DELETE /api/v1/admin/accounts/{user_uuid}`
 
-Deactivate an end-user account. This is a **soft delete**
-(`iam.users.is_active = false`) — it automatically revokes the account's API
-keys via an existing DB trigger. Nothing is hard-deleted.
+Soft-block (deactivate) an end-user account. Sets `iam.users.is_active=false`, which
+triggers API-key revocation via an existing DB trigger. Nothing is hard-deleted.
+The ops dashboard labels this action **Block**. Unblock/reactivation is out of band today.
 
 **Scope:** `admin:write`
 

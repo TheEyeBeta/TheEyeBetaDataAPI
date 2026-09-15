@@ -34,6 +34,13 @@ class AccountResponse(BaseModel):
     created_at: datetime | None = None
 
 
+class AccountListResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    accounts: list[AccountResponse]
+    total: int
+
+
 class DeleteAccountRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
