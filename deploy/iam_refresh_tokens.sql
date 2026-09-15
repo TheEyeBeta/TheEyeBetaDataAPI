@@ -32,4 +32,20 @@ CREATE INDEX IF NOT EXISTS idx_refresh_tokens_client_subject
     ON iam.refresh_tokens (client_id, subject)
     WHERE revoked_at IS NULL;
 
+-- Runtime grants for the API role used in DATABASE_URL (default name: api_service).
+-- Adjust the role name if your deployment uses a different login.
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'api_service') THEN
+        GRANT USAGE ON SCHEMA iam TO api_service;
+        GRANT SELECT, INSERT, UPDATE ON iam.refresh_tokens TO api_service;
+        GRANT SELECT ON iam.service_clients TO api_service;
+        GRANT SELECT ON iam.service_client_scopes TO api_service;
+    END IF;
+END $$;
+
+-- If your API role is not api_service, run (as a privileged owner):
+--   GRANT USAGE ON SCHEMA iam TO <api_role>;
+--   GRANT SELECT, INSERT, UPDATE ON iam.refresh_tokens TO <api_role>;
+
 COMMIT;

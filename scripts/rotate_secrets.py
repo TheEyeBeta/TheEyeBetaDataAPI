@@ -108,7 +108,16 @@ def main() -> int:
 
     print(f"Rotated secrets written to {env_path} (mode 600). Backup saved at {backup_path} (mode 600).")
     print("JWT signing CURRENT rotated; PREVIOUS retained for verify overlap.")
-    print("After restart, wait >= SERVICE_TOKEN_EXPIRES_MINUTES, then clear *_PREVIOUS.")
+    print(
+        "After restart, wait >= SERVICE_TOKEN_EXPIRES_MINUTES (and "
+        "DELEGATED_TOKEN_EXPIRES_MINUTES if Lens is in use) before clearing "
+        "JWT_SIGNING_SECRET_PREVIOUS."
+    )
+    print(
+        "Clear USER_JWT_SECRET_PREVIOUS only after one full *user-token* TTL "
+        "(issuer-controlled — often longer than the service-token window). "
+        "Do not clear both PREVIOUS secrets on the service TTL alone."
+    )
     print("See docs/SECRET_ROTATION_RUNBOOK.md.")
     print("Updated service client secrets:")
     for client_id, secret in rotated_client_secrets.items():

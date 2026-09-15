@@ -228,7 +228,15 @@ GRANT SELECT ON iam.users TO api_service;
 GRANT SELECT, UPDATE ON iam.user_api_keys TO api_service;  -- UPDATE: last_used_* only
 GRANT INSERT ON iam.user_api_key_events TO api_service;
 GRANT USAGE ON SEQUENCE iam.user_api_key_events_event_id_seq TO api_service;
+-- Phase 3 / 4 (also applied automatically when role api_service exists):
+GRANT SELECT, INSERT, UPDATE ON iam.refresh_tokens TO api_service;
+GRANT INSERT ON iam.auth_audit_log TO api_service;
+GRANT USAGE, SELECT ON SEQUENCE iam.auth_audit_log_event_id_seq TO api_service;
 ```
+
+`deploy/iam_refresh_tokens.sql` and `deploy/iam_auth_audit.sql` grant these to
+`api_service` when that role exists; rename the role in those scripts (or run the
+SQL above) if `DATABASE_URL` uses a different login.
 
 ## H) Not included (deliberate)
 

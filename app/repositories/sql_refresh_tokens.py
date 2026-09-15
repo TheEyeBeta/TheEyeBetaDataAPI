@@ -77,14 +77,79 @@ class RefreshTokenRepository:
             self._session.rollback()
             raise DatabaseUnavailableError("Unable to persist refresh token") from exc
 
+    def lookup_active(self, presented_raw_token: str) -> RefreshTokenRecord:
+        """Return an active, unexpired refresh row (no mutation)."""
+        presented_hash = hash_refresh_token(presented_raw_token)
+        try:
+            row = (
+                self._session.execute(
+                    text(
+                        """
+                        SELECT id, subject, client_id, expires_at, revoked_at,
+                               metadata -> 'scopes' AS scopes
+                        FROM iam.refresh_tokens
+                        WHERE token_hash = :token_hash
+                        """
+                    ),
+                    {"token_hash": presented_hash},
+                )
+                .mappings()
+                .first()
+            )
+        except SQLAlchemyError as exc:
+            raise DatabaseUnavailableError("Unable to look up refresh token") from exc
+        if not row:
+            raise AuthenticationError("Invalid refresh token")
+        if row["revoked_at"] is not None:
+            raise AuthenticationError("Refresh token already used or revoked")
+        expires_at = row["expires_at"]
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=UTC)
+        if expires_at <= datetime.now(UTC):
+            raise AuthenticationError("Refresh token expired")
+        raw_scopes = row.get("scopes") or []
+        if isinstance(raw_scopes, str):
+            raw_scopes = json.loads(raw_scopes)
+        return RefreshTokenRecord(
+            id=UUID(str(row["id"])),
+            subject=str(row["subject"]),
+            client_id=str(row["client_id"]),
+            scopes=[str(s) for s in raw_scopes],
+            expires_at=expires_at,
+        )
+
+    def revoke_active_for_client(self, client_id: str) -> None:
+        """Revoke all active refresh tokens for a client (authz change / disable)."""
+        try:
+            self._session.execute(
+                text(
+                    """
+                    UPDATE iam.refresh_tokens
+                    SET revoked_at = now()
+                    WHERE client_id = :client_id
+                      AND revoked_at IS NULL
+                    """
+                ),
+                {"client_id": client_id},
+            )
+            self._session.commit()
+        except SQLAlchemyError as exc:
+            self._session.rollback()
+            raise DatabaseUnavailableError("Unable to revoke refresh tokens") from exc
+
     def rotate(
         self,
         *,
         presented_raw_token: str,
         new_raw_token: str,
         new_expires_at: datetime,
+        scopes: list[str] | None = None,
     ) -> RefreshTokenRecord:
-        """Validate + revoke the presented token; insert a replacement (rotate-on-use)."""
+        """Validate + revoke the presented token; insert a replacement (rotate-on-use).
+
+        When ``scopes`` is provided, the replacement stores that list (current
+        intersection). Otherwise the previous snapshot is copied.
+        """
         presented_hash = hash_refresh_token(presented_raw_token)
         new_hash = hash_refresh_token(new_raw_token)
         try:
@@ -114,10 +179,13 @@ class RefreshTokenRepository:
             if expires_at <= datetime.now(UTC):
                 raise AuthenticationError("Refresh token expired")
 
-            raw_scopes = row.get("scopes") or []
-            if isinstance(raw_scopes, str):
-                raw_scopes = json.loads(raw_scopes)
-            scopes = [str(s) for s in raw_scopes]
+            if scopes is None:
+                raw_scopes = row.get("scopes") or []
+                if isinstance(raw_scopes, str):
+                    raw_scopes = json.loads(raw_scopes)
+                scopes = [str(s) for s in raw_scopes]
+            else:
+                scopes = [str(s) for s in scopes]
 
             new_id = self._session.execute(
                 text(

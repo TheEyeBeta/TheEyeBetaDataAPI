@@ -93,6 +93,11 @@ Before production:
    overlap, and fails after `PREVIOUS` is cleared.
 5. Confirm a token minted **after** the CURRENT swap works throughout.
 
+`scripts/rotate_secrets.py` prints **separate** clear windows: clear
+`JWT_SIGNING_SECRET_PREVIOUS` after the service/delegated TTL; clear
+`USER_JWT_SECRET_PREVIOUS` only after the issuer-controlled user-token TTL.
+Do not clear both on the service TTL alone.
+
 Automated coverage: `tests/test_secret_rotation.py`.
 
 ## D) Do not
