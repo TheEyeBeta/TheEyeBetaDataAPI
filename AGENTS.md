@@ -9,6 +9,17 @@ finishing any task that adds/changes a route, scope, env var, script, or
 service/deploy convention. `README.md` and `docs/API_REFERENCE.md` drift from
 the code fast if updating them isn't a deliberate step of the change itself.
 
+## Production consumers (release gates)
+
+When changing auth, scopes, or deploy behavior, the products that must keep
+working are:
+
+1. **Lens / AI Financial Advisor** — IAM client `ai-advisor-production` (service token → `/api/v1/*`).
+2. **TheEyeBetaAdmin Frontend** — browser `/admin/*` gateway → Prod admin-service; data via `theeyebeta-prod-admin`.
+
+`vi-app` is a legacy/template client only — not a product release gate. Details:
+`docs/IAM_CONSUMER_INVENTORY.md`.
+
 ## This is a separate system from TheEyeBetaProd
 
 `TheEyeBetaDataAPI` (this repo) and `TheEyeBetaProd` (the trading system, at
