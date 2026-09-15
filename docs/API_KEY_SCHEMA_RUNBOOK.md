@@ -167,6 +167,15 @@ python scripts/provision_user_api_key.py \
   --plan pro --expires-days 90
 ```
 
+`--expires-days` is **required** (Phase 5). Cap is `USER_API_KEY_MAX_EXPIRES_DAYS`
+(default 365). For keys created before this policy, run:
+
+```bash
+python scripts/backfill_user_api_key_expiry.py --dry-run
+python scripts/backfill_user_api_key_expiry.py
+python scripts/report_expiring_user_api_keys.py --within-days 30
+```
+
 Both return `api_key` once — store it securely; only the hash is persisted.
 
 ## D) Issue/rotate a key for an existing user

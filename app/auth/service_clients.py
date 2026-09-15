@@ -28,6 +28,7 @@ class ServiceClient:
     scopes: list[str]
     secret: str | None = None
     client_uuid: str | None = None
+    short_lived_tokens_enabled: bool = False
 
 
 def _normalize_client_ip(client_ip: str | None) -> str | None:
@@ -57,7 +58,13 @@ def _get_service_client_from_env(client_id: str) -> ServiceClient:
     secret = str(raw.get("secret", ""))
     if not isinstance(scopes, list) or not secret:
         raise AuthenticationError("Invalid service client configuration")
-    return ServiceClient(client_id=client_id, secret=secret, scopes=[str(scope) for scope in scopes])
+    short_lived = bool(raw.get("short_lived_tokens_enabled", False))
+    return ServiceClient(
+        client_id=client_id,
+        secret=secret,
+        scopes=[str(scope) for scope in scopes],
+        short_lived_tokens_enabled=short_lived,
+    )
 
 
 def _get_service_client_from_db(client_id: str, session: Session) -> ServiceClient:
@@ -68,6 +75,10 @@ def _get_service_client_from_db(client_id: str, session: Session) -> ServiceClie
                 SELECT
                     c.client_uuid::text AS client_uuid,
                     c.client_id,
+                    COALESCE(
+                        (to_jsonb(c) ->> 'short_lived_tokens_enabled')::boolean,
+                        false
+                    ) AS short_lived_tokens_enabled,
                     COALESCE(
                         array_agg(s.scope ORDER BY s.scope)
                         FILTER (WHERE s.scope IS NOT NULL),
@@ -97,6 +108,7 @@ def _get_service_client_from_db(client_id: str, session: Session) -> ServiceClie
         client_uuid=str(row["client_uuid"]),
         scopes=scopes,
         secret=None,
+        short_lived_tokens_enabled=bool(row.get("short_lived_tokens_enabled")),
     )
 
 

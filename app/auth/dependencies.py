@@ -77,8 +77,17 @@ def get_principal(request: Request, authorization: str | None = Header(default=N
 def require_scopes(required: list[str]):
     """Return dependency enforcing the provided scopes."""
 
-    def _enforce(principal: Principal = Depends(get_principal)) -> Principal:
+    def _enforce(request: Request, principal: Principal = Depends(get_principal)) -> Principal:
         if not has_required_scopes(principal.scopes, required):
+            from app.auth.audit import record_auth_audit
+
+            record_auth_audit(
+                subject=principal.subject,
+                scope_required=" ".join(required),
+                scope_granted=" ".join(sorted(principal.scopes)),
+                route=request.url.path,
+                outcome="forbidden",
+            )
             raise AuthorizationError("Insufficient scopes")
         _enforce_current_policy(principal)
         return principal
@@ -89,8 +98,17 @@ def require_scopes(required: list[str]):
 def require_any_scope(required: list[str]):
     """Return dependency requiring one compatible read scope and current policy."""
 
-    def _enforce(principal: Principal = Depends(get_principal)) -> Principal:
+    def _enforce(request: Request, principal: Principal = Depends(get_principal)) -> Principal:
         if not any(has_required_scopes(principal.scopes, [scope]) for scope in required):
+            from app.auth.audit import record_auth_audit
+
+            record_auth_audit(
+                subject=principal.subject,
+                scope_required="|".join(required),
+                scope_granted=" ".join(sorted(principal.scopes)),
+                route=request.url.path,
+                outcome="forbidden",
+            )
             raise AuthorizationError("A compatible read scope is required")
         _enforce_current_policy(principal)
         return principal

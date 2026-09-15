@@ -32,6 +32,7 @@ os.environ.setdefault("API_PORT", "7000")
 os.environ.setdefault("CORS_ORIGINS", "http://localhost:3000,http://localhost:5173")
 os.environ.setdefault("TRUSTED_HOSTS", "testserver,localhost,127.0.0.1")
 os.environ.setdefault("TRUST_PROXY_HEADERS", "false")
+os.environ.setdefault("JWT_REQUIRE_ISS_AUD", "false")
 
 import pytest  # noqa: E402
 

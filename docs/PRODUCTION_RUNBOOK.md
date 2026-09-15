@@ -96,7 +96,7 @@ curl -s "http://127.0.0.1:7000/api/v1/data/tables/latest_snapshots/rows?symbol=A
 Remote smoke:
 
 ```bash
-API_BASE_URL="https://api.theeyebeta.store" \
+API_BASE_URL="https://dataapiprod.theeyebeta.store" \
 SERVICE_CLIENT_ID="vi-app" \
 SERVICE_CLIENT_SECRET="<SERVICE_SECRET>" \
 bash scripts/verify_remote_access.sh
@@ -106,11 +106,15 @@ bash scripts/verify_remote_access.sh
 
 - Provision or rotate DB-backed service credentials:
   - `python scripts/provision_db_service_client.py --client-id <id> --display-name \"...\" --app-type <type> --allow-existing`
-- Rotate JWT secrets separately (app token signing secrets in `.env`):
-  - `python scripts/rotate_secrets.py`
+- Rotate JWT signing secrets with a verify overlap (no forced logouts):
+  - Follow [`SECRET_ROTATION_RUNBOOK.md`](SECRET_ROTATION_RUNBOOK.md)
+  - Or `python scripts/rotate_secrets.py` then restart, wait ≥ `SERVICE_TOKEN_EXPIRES_MINUTES`, clear `*_PREVIOUS`
 - Keep service scopes minimal per consumer.
 - Use distinct principals per consumer (mobile backend, VI, trade engine, admin/internal).
-- Require `Idempotency-Key` for write routes.
+- Require `X-Idempotency-Key` for `/admin/*` write routes.
 - Enable JWKS and mTLS in production when identity provider and proxy are ready.
 - Remove direct public admin ingress only after DataAPI gateway smoke tests prove that MFA, RBAC,
   confirmation, SQL protection, and audit correlation are preserved.
+- Consumer inventory for TTL / grace planning: [`IAM_CONSUMER_INVENTORY.md`](IAM_CONSUMER_INVENTORY.md).
+- Ops hardening (firewall, Prometheus alert sketches, rotation cadence, iam backups):
+  [`OPS_HARDENING.md`](OPS_HARDENING.md).

@@ -175,6 +175,8 @@ def verify_user_api_key(
                 payload={"reason": failure_reason, "client_ip": normalized_ip or ""},
             )
             db_session.commit()
+            if failure_reason == "key_expired":
+                raise AuthenticationError("API key expired")
             raise AuthenticationError("Invalid API key")
 
         scopes = [str(scope).strip() for scope in (row["scopes"] or []) if str(scope).strip()]

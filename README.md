@@ -29,12 +29,22 @@ live outside this repo.
   - optional direct mTLS principal flow (no bearer) via trusted proxy headers:
     - `X-Service-Client-Id`
     - `X-Client-Cert-Subject`
+- JWT decode hardening (Phase 1):
+  - every `jwt.decode` uses an explicit algorithm allowlist (current signing alg only)
+  - `exp` and `iat` are always required
+  - `iss`/`aud` enforcement is gated by `JWT_REQUIRE_ISS_AUD` (default `false` grace period; see `docs/IAM_CONSUMER_INVENTORY.md`)
+- Refresh tokens (Phase 3, opt-in per client):
+  - set `iam.service_clients.short_lived_tokens_enabled = true` (after applying `deploy/iam_refresh_tokens.sql`)
+  - opted-in clients get shorter access TTL (`SHORT_LIVED_ACCESS_TOKEN_MINUTES`) plus `refresh_token` on `/service-token`
+  - `POST /api/v1/auth/refresh` rotates refresh tokens (reuse of an old refresh token is rejected)
+  - all other clients keep the existing long-lived `/service-token` response shape
 - Scope examples:
   - `market:read`
   - `analytics:read`
   - `admin:read`
   - `admin:write` (separate from `admin:read` — create/deactivate end-user accounts)
   - `admin:*`
+- OpenAPI UI (`/docs`, `/redoc`, `/openapi.json`) is disabled when `ENVIRONMENT=production`.
 
 ## API Reference
 
@@ -45,7 +55,7 @@ See **[docs/API_REFERENCE.md](docs/API_REFERENCE.md)** for the full endpoint ref
 | Group | Scope | Endpoints |
 |---|---|---|
 | Health | — | `GET /health` |
-| Auth | — | `POST /api/v1/auth/service-token` |
+| Auth | — | `POST /api/v1/auth/service-token`, `POST /api/v1/auth/refresh` (opt-in), `POST /api/v1/auth/delegated-token` |
 | Market Data | `market:read` | `GET /api/v1/market-data/quotes` |
 | Symbols | `symbols:read` | `GET /api/v1/symbols/search`, `GET /api/v1/symbols/resolve` |
 | Tickers | `market:read` / `analytics:read` | `GET /api/v1/tickers/{ticker}`, price-history, corporate-actions, fundamentals |
@@ -196,7 +206,7 @@ bash scripts/start_all_native.sh
 Remote smoke test (via Cloudflare Tunnel):
 
 ```bash
-API_BASE_URL="https://dataapi.theeyebeta.store" \
+API_BASE_URL="https://dataapiprod.theeyebeta.store" \
 SERVICE_CLIENT_ID="vi-app" \
 SERVICE_CLIENT_SECRET="<SERVICE_SECRET>" \
 bash scripts/verify_remote_access.sh
@@ -208,11 +218,18 @@ See **[docs/TUNNEL_RUNBOOK.md](docs/TUNNEL_RUNBOOK.md)** for the full TheEyeBeta
 
 | Public hostname | Local origin | Service |
 |---|---|---|
-| `dataapi.theeyebeta.store` | `http://127.0.0.1:7000` | TheEyeBetaDataAPI |
+| `dataapiprod.theeyebeta.store` | `http://127.0.0.1:7000` | TheEyeBetaDataAPI (canonical production origin) |
+| `dataapi.theeyebeta.store` | `http://127.0.0.1:7000` | TheEyeBetaDataAPI (legacy alias) |
 | `api.theeyebeta.store` | `http://127.0.0.1:8000` | TheEyeBetaLocal Main API |
-| `admin.theeyebeta.store` | `http://127.0.0.1:7200` | TheEyeBetaProd admin |
+| `admin.theeyebeta.store` | `http://127.0.0.1:8080` | The Eye hosted terminal |
 
 Canonical config: [`deploy/cloudflared-config.yml`](deploy/cloudflared-config.yml)
+
+The web terminal and locally bundled Windows terminal both call
+`https://dataapiprod.theeyebeta.store` directly. Production CORS is restricted
+to the admin web origin and the Tauri application origins. Administrative
+mutations require `X-Idempotency-Key`; the gateway forwards bearer, request ID,
+confirmation, dry-run, CSRF, cookie, and idempotency headers to admin-service.
 
 ```bash
 # Sync DNS + remote ingress (no sudo)
@@ -224,6 +241,8 @@ sudo bash scripts/fix_tunnel.sh
 
 ## Optional production hardening toggles
 
+- Require `iss`/`aud` on every JWT decode (after inventory confirms no legacy tokens):
+  - `JWT_REQUIRE_ISS_AUD=true`
 - OIDC/JWKS user JWT validation:
   - `USER_JWT_JWKS_URL`, `USER_JWT_ISSUER`, `USER_JWT_AUDIENCE`, `USER_JWT_ALGORITHMS`
 - Redis rate limiting backend:
@@ -233,6 +252,25 @@ sudo bash scripts/fix_tunnel.sh
   - `SERVICE_MTLS_SUBJECTS_JSON`
   - `TRUST_PROXY_HEADERS=true`
 
+Consumer inventory for rotation / claim-enforcement planning: [`docs/IAM_CONSUMER_INVENTORY.md`](docs/IAM_CONSUMER_INVENTORY.md).
+
+Additive IAM SQL (apply on host Postgres before enabling the matching feature flags):
+
+- `deploy/iam_refresh_tokens.sql` — refresh tokens + `short_lived_tokens_enabled`
+- `deploy/iam_auth_audit.sql` — `iam.auth_audit_log` + `least_privilege_default` column
+
+New DB-backed clients can be provisioned narrow with:
+
+```bash
+python scripts/provision_db_service_client.py \
+  --client-id example-reader \
+  --display-name "Example reader" \
+  --app-type vi-backend \
+  --least-privilege \
+  --scope market:read
+```
+
+
 ## Rotate secrets
 
 ```bash
@@ -240,7 +278,12 @@ source .venv/bin/activate
 python scripts/rotate_secrets.py
 ```
 
-Rotates `JWT_SECRET`, `USER_JWT_SECRET`, and all `SERVICE_CLIENTS_JSON` client secrets.
+Performs a **zero-downtime** JWT signing rotation: moves the live signing secret
+into `JWT_SIGNING_SECRET_PREVIOUS` / `USER_JWT_SECRET_PREVIOUS`, writes new
+`CURRENT` values (and keeps `JWT_SECRET` / `USER_JWT_SECRET` aliases aligned),
+and rotates `SERVICE_CLIENTS_JSON` client secrets. Restart the service, wait one
+full max token TTL, then clear `*_PREVIOUS`. Step-by-step:
+[`docs/SECRET_ROTATION_RUNBOOK.md`](docs/SECRET_ROTATION_RUNBOOK.md).
 
 ## DB-backed API key schema
 
@@ -251,7 +294,7 @@ Use [OTHEREND_TEST.md](OTHEREND_TEST.md) for a complete laptop verification work
 Cross-platform Python script (Windows/Unix):
 
 ```bash
-API_BASE_URL=https://dataapi.theeyebeta.store \
+API_BASE_URL=https://dataapiprod.theeyebeta.store \
 VI_CLIENT_ID=vi-app VI_CLIENT_SECRET=<secret> \
 TRADE_CLIENT_ID=trade-engine TRADE_CLIENT_SECRET=<secret> \
 ADMIN_CLIENT_ID=admin-tool ADMIN_CLIENT_SECRET=<secret> \

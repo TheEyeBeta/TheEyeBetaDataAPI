@@ -47,8 +47,8 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--expires-days",
         type=int,
-        default=0,
-        help="Optional key expiry in days (0 means no expiry).",
+        required=True,
+        help="Required key lifetime in days (1 .. USER_API_KEY_MAX_EXPIRES_DAYS).",
     )
     return parser.parse_args()
 
@@ -60,9 +60,16 @@ def _normalize_scopes(values: list[str]) -> list[str]:
     return sorted(set(normalized))
 
 
-def _expires_at(days: int) -> datetime | None:
-    if days <= 0:
-        return None
+def _expires_at(days: int) -> datetime:
+    from app.core.config import settings
+
+    if days < 1:
+        raise ValueError("--expires-days is required and must be >= 1")
+    if days > settings.user_api_key_max_expires_days:
+        raise ValueError(
+            f"--expires-days cannot exceed USER_API_KEY_MAX_EXPIRES_DAYS "
+            f"({settings.user_api_key_max_expires_days})"
+        )
     return datetime.now(UTC) + timedelta(days=days)
 
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 ALLOWED_PLANS = ("free", "starter", "pro", "enterprise")
 
@@ -14,6 +14,8 @@ _EMAIL_PATTERN = r"^[^@\s]+@[^@\s]+\.[^@\s]+$"
 
 
 class CreateAccountRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     email: str = Field(min_length=3, max_length=320, pattern=_EMAIL_PATTERN)
     display_name: str | None = Field(default=None, max_length=200)
     organization: str | None = Field(default=None, max_length=200)
@@ -21,6 +23,8 @@ class CreateAccountRequest(BaseModel):
 
 
 class AccountResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     user_uuid: str
     email: str
     display_name: str | None = None
@@ -31,5 +35,7 @@ class AccountResponse(BaseModel):
 
 
 class DeleteAccountRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     approval_code: str = Field(min_length=1, max_length=200)
     reason: str | None = Field(default=None, max_length=500)

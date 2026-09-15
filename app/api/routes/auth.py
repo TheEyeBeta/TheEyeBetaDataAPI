@@ -9,19 +9,26 @@ from sqlalchemy.orm import Session
 from app.api.dependencies.services import get_session
 from app.auth.service_clients import get_service_client, validate_requested_scopes, verify_service_client_secret
 from app.auth.scopes import LENS_DELEGATED_READ_SCOPES, SCOPE_LENS_DELEGATE, has_required_scopes
-from app.auth.tokens import create_delegated_access_token, create_service_access_token, decode_user_token
+from app.auth.tokens import create_delegated_access_token, decode_user_token
 from app.core.client_ip import get_client_ip
 from app.core.config import settings
-from app.domain.errors import AuthenticationError
-from app.schemas.auth import DelegatedTokenRequest, DelegatedTokenResponse, ServiceTokenRequest, ServiceTokenResponse
+from app.domain.errors import AuthenticationError, AuthorizationError
 from app.policy.repository import PolicyRepository
-from app.domain.errors import AuthorizationError
+from app.schemas.auth import (
+    DelegatedTokenRequest,
+    DelegatedTokenResponse,
+    RefreshTokenRequest,
+    RefreshTokenResponse,
+    ServiceTokenRequest,
+    ServiceTokenResponse,
+)
+from app.services.auth_token_service import AuthTokenService
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 security = HTTPBasic(auto_error=False)
 
 
-@router.post("/service-token", response_model=ServiceTokenResponse)
+@router.post("/service-token", response_model=ServiceTokenResponse, response_model_exclude_none=True)
 def issue_service_token(
     request_body: ServiceTokenRequest,
     request: Request,
@@ -40,21 +47,19 @@ def issue_service_token(
         client_ip=get_client_ip(request),
     )
     granted_scopes = validate_requested_scopes(client, request_body.requested_scopes)
-
-    token = create_service_access_token(
-        subject=f"service:{client.client_id}",
-        client_id=client.client_id,
-        scopes=granted_scopes,
-        expires_minutes=settings.service_token_expires_minutes,
-    )
-    return ServiceTokenResponse(
-        access_token=token,
-        expires_minutes=settings.service_token_expires_minutes,
-        scopes=granted_scopes,
-    )
+    return AuthTokenService(session).issue_service_token(client, granted_scopes)
 
 
-@router.post("/delegated-token", response_model=DelegatedTokenResponse)
+@router.post("/refresh", response_model=RefreshTokenResponse, response_model_exclude_none=True)
+def refresh_access_token(
+    request_body: RefreshTokenRequest,
+    session: Session = Depends(get_session),
+) -> RefreshTokenResponse:
+    """Exchange a non-revoked refresh token for a new access + rotated refresh token."""
+    return AuthTokenService(session).refresh(request_body.refresh_token)
+
+
+@router.post("/delegated-token", response_model=DelegatedTokenResponse, response_model_exclude_none=True)
 def issue_delegated_token(
     request_body: DelegatedTokenRequest,
     request: Request,

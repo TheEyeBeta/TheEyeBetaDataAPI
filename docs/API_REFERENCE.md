@@ -1,6 +1,11 @@
 # TheEyeBeta DataAPI — API Reference
 
-Base URL: `https://api.theeyebeta.store` (or `http://127.0.0.1:7000` locally)
+Base URL: `https://dataapiprod.theeyebeta.store` (or `http://127.0.0.1:7000` locally)
+
+The shared web and Windows terminal uses this base URL directly. Browser access
+is credentialed and restricted to `https://admin.theeyebeta.store` plus the
+Tauri application origins. Every non-authentication `/admin/*` mutation must
+include `X-Idempotency-Key`; ambiguous retries reuse the same value.
 
 All versioned endpoints are under `/api/v1/`.
 
@@ -17,6 +22,7 @@ data-sync issue, not a runtime fallback path. This API is read-only.
 3. [Error Format](#error-format)
 4. [Health](#health)
 5. [Auth — Service Tokens](#auth--service-tokens)
+5a. [Auth — Refresh Tokens](#post-apiv1authrefresh)
 6. [Market Data](#market-data)
 7. [Symbols](#symbols)
 8. [Tickers](#tickers)
@@ -45,10 +51,19 @@ Authorization: Bearer <token>
 
 **User principals** supply a JWT issued by the configured user auth provider (`USER_JWT_SECRET` or OIDC/JWKS).
 
+**JWT validation notes**
+
+- Decodes always use an explicit algorithm allowlist (no `alg` from the token header).
+- `exp` and `iat` are required on every token.
+- `iss` and `aud` are required when `JWT_REQUIRE_ISS_AUD=true` (default `false` during the grace period documented in `docs/IAM_CONSUMER_INVENTORY.md`).
+- Service and delegated tokens issued by this API always include `iss`/`aud`/`iat`/`exp`.
+- Auth request bodies (`/api/v1/auth/*`, admin account create/delete) reject unknown fields (`extra=forbid`).
+- When `ENVIRONMENT=production`, `/docs`, `/redoc`, and `/openapi.json` are disabled.
+
 ### Getting a service token (quick start)
 
 ```bash
-TOKEN=$(curl -s -X POST "https://api.theeyebeta.store/api/v1/auth/service-token" \
+TOKEN=$(curl -s -X POST "https://dataapiprod.theeyebeta.store/api/v1/auth/service-token" \
   -u "<CLIENT_ID>:<CLIENT_SECRET>" \
   -H "Content-Type: application/json" \
   -d '{"requested_scopes":["market:read","analytics:read"]}' \
@@ -58,7 +73,7 @@ TOKEN=$(curl -s -X POST "https://api.theeyebeta.store/api/v1/auth/service-token"
 Then use the token:
 
 ```bash
-curl -s "https://api.theeyebeta.store/api/v1/market-data/quotes?symbols=AAPL,MSFT" \
+curl -s "https://dataapiprod.theeyebeta.store/api/v1/market-data/quotes?symbols=AAPL,MSFT" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -123,7 +138,7 @@ Returns API liveness and dependency health. No auth required. The top-level `sta
 **Example**
 
 ```bash
-curl -s https://api.theeyebeta.store/health
+curl -s https://dataapiprod.theeyebeta.store/health
 ```
 
 ---
@@ -159,13 +174,52 @@ Exchange service client credentials for a scoped Bearer token.
 }
 ```
 
+For clients with `short_lived_tokens_enabled = true` (default **false**; requires
+`deploy/iam_refresh_tokens.sql`), the access TTL is `SHORT_LIVED_ACCESS_TOKEN_MINUTES`
+(default 15) and the response also includes:
+
+```json
+{
+  "refresh_token": "<opaque>",
+  "refresh_expires_at": "2026-10-14T12:00:00+00:00"
+}
+```
+
+Opted-out clients never see these fields (`response_model_exclude_none`).
+
 **Example**
 
 ```bash
-curl -s -X POST "https://api.theeyebeta.store/api/v1/auth/service-token" \
+curl -s -X POST "https://dataapiprod.theeyebeta.store/api/v1/auth/service-token" \
   -u "my-client-id:my-client-secret" \
   -H "Content-Type: application/json" \
   -d '{"requested_scopes":["market:read","signals:read","portfolio:read"]}'
+```
+
+### `POST /api/v1/auth/refresh`
+
+Exchange a valid refresh token for a new access token and a **rotated** refresh
+token (rotate-on-use). Replaying a previously used refresh token returns `401`.
+
+**Authentication:** none (the refresh token is the credential).
+
+**Request body**
+
+```json
+{
+  "refresh_token": "<opaque>"
+}
+```
+
+**Response:** same shape as an opted-in `/service-token` response (always includes
+a new `refresh_token`).
+
+**Example**
+
+```bash
+curl -s -X POST "https://dataapiprod.theeyebeta.store/api/v1/auth/refresh" \
+  -H "Content-Type: application/json" \
+  -d '{"refresh_token":"<opaque>"}'
 ```
 
 ---
@@ -210,7 +264,7 @@ Real-time / latest-available quotes for one or more symbols.
 **Example**
 
 ```bash
-curl -s "https://api.theeyebeta.store/api/v1/market-data/quotes?symbols=AAPL,MSFT" \
+curl -s "https://dataapiprod.theeyebeta.store/api/v1/market-data/quotes?symbols=AAPL,MSFT" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -247,7 +301,7 @@ Search for tickers by name or symbol prefix.
 **Example**
 
 ```bash
-curl -s "https://api.theeyebeta.store/api/v1/symbols/search?q=apple&limit=10" \
+curl -s "https://dataapiprod.theeyebeta.store/api/v1/symbols/search?q=apple&limit=10" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -290,7 +344,7 @@ and FIGI are nullable because the security-master columns are nullable.
 **Example**
 
 ```bash
-curl -s "https://api.theeyebeta.store/api/v1/symbols/resolve?symbol=AAPL" \
+curl -s "https://dataapiprod.theeyebeta.store/api/v1/symbols/resolve?symbol=AAPL" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -336,7 +390,7 @@ Full detail for a single ticker.
 **Example**
 
 ```bash
-curl -s "https://api.theeyebeta.store/api/v1/tickers/AAPL" \
+curl -s "https://dataapiprod.theeyebeta.store/api/v1/tickers/AAPL" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -392,11 +446,11 @@ populated (same shape as `GET /{ticker}/corporate-actions`) only when
 **Example**
 
 ```bash
-curl -s "https://api.theeyebeta.store/api/v1/tickers/AAPL/price-history?start=2025-01-01&limit=90" \
+curl -s "https://dataapiprod.theeyebeta.store/api/v1/tickers/AAPL/price-history?start=2025-01-01&limit=90" \
   -H "Authorization: Bearer $TOKEN"
 
 # Split/dividend-adjusted, with the corporate actions that drove the adjustment
-curl -s "https://api.theeyebeta.store/api/v1/tickers/AAPL/price-history?adjust=splits_dividends" \
+curl -s "https://dataapiprod.theeyebeta.store/api/v1/tickers/AAPL/price-history?adjust=splits_dividends" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -441,7 +495,7 @@ Splits and dividends for a ticker.
 **Example**
 
 ```bash
-curl -s "https://api.theeyebeta.store/api/v1/tickers/AAPL/corporate-actions" \
+curl -s "https://dataapiprod.theeyebeta.store/api/v1/tickers/AAPL/corporate-actions" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -496,7 +550,7 @@ Static company fundamentals snapshot (valuation multiples, share count, dividend
 **Example**
 
 ```bash
-curl -s "https://api.theeyebeta.store/api/v1/tickers/AAPL/fundamentals" \
+curl -s "https://dataapiprod.theeyebeta.store/api/v1/tickers/AAPL/fundamentals" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -546,7 +600,7 @@ Quarterly income statements.
 **Example**
 
 ```bash
-curl -s "https://api.theeyebeta.store/api/v1/financials/AAPL/income?limit=8" \
+curl -s "https://dataapiprod.theeyebeta.store/api/v1/financials/AAPL/income?limit=8" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -693,7 +747,7 @@ Daily moving averages, RSI, MACD, rate-of-change, and crossover signals.
 **Example**
 
 ```bash
-curl -s "https://api.theeyebeta.store/api/v1/indicators/AAPL/technical?limit=30" \
+curl -s "https://dataapiprod.theeyebeta.store/api/v1/indicators/AAPL/technical?limit=30" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -832,7 +886,7 @@ Latest combined analytics snapshot for a ticker (price, technicals).
 **Example**
 
 ```bash
-curl -s "https://api.theeyebeta.store/api/v1/analytics/snapshots/AAPL" \
+curl -s "https://dataapiprod.theeyebeta.store/api/v1/analytics/snapshots/AAPL" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -876,11 +930,11 @@ Latest trading signals with optional ticker filter.
 
 ```bash
 # All latest signals
-curl -s "https://api.theeyebeta.store/api/v1/signals/latest?limit=50" \
+curl -s "https://dataapiprod.theeyebeta.store/api/v1/signals/latest?limit=50" \
   -H "Authorization: Bearer $TOKEN"
 
 # Signals for one ticker
-curl -s "https://api.theeyebeta.store/api/v1/signals/latest?ticker=AAPL" \
+curl -s "https://dataapiprod.theeyebeta.store/api/v1/signals/latest?ticker=AAPL" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -922,7 +976,7 @@ Latest market-wide news headlines.
 **Example**
 
 ```bash
-curl -s "https://api.theeyebeta.store/api/v1/news/market?limit=10" \
+curl -s "https://dataapiprod.theeyebeta.store/api/v1/news/market?limit=10" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -969,7 +1023,7 @@ News articles for a specific ticker.
 **Example**
 
 ```bash
-curl -s "https://api.theeyebeta.store/api/v1/news/ticker/AAPL?limit=5" \
+curl -s "https://dataapiprod.theeyebeta.store/api/v1/news/ticker/AAPL?limit=5" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -1052,7 +1106,7 @@ Static lookup tables. All require `market:read` scope and take no required param
 **Example**
 
 ```bash
-curl -s "https://api.theeyebeta.store/api/v1/reference/industries?sector_id=4" \
+curl -s "https://dataapiprod.theeyebeta.store/api/v1/reference/industries?sector_id=4" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -1089,7 +1143,7 @@ Trading calendar days with market open/close status and holidays.
 **Example**
 
 ```bash
-curl -s "https://api.theeyebeta.store/api/v1/reference/calendar?start=2025-05-01&end=2025-05-31" \
+curl -s "https://dataapiprod.theeyebeta.store/api/v1/reference/calendar?start=2025-05-01&end=2025-05-31" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -1153,11 +1207,11 @@ Structured market context payload for feeding into an external AI client — tic
 
 ```bash
 # General context
-curl -s "https://api.theeyebeta.store/api/v1/advisor/context" \
+curl -s "https://dataapiprod.theeyebeta.store/api/v1/advisor/context" \
   -H "Authorization: Bearer $TOKEN"
 
 # Focused on AAPL
-curl -s "https://api.theeyebeta.store/api/v1/advisor/context?ticker=AAPL&news_limit=5" \
+curl -s "https://dataapiprod.theeyebeta.store/api/v1/advisor/context?ticker=AAPL&news_limit=5" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -1194,7 +1248,7 @@ Ask the AI advisor a question. The API pulls relevant DB context and returns an 
 **Example**
 
 ```bash
-curl -s -X POST "https://api.theeyebeta.store/api/v1/advisor/chat" \
+curl -s -X POST "https://dataapiprod.theeyebeta.store/api/v1/advisor/chat" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"question": "Is AAPL currently overbought?", "ticker": "AAPL"}'
@@ -1256,11 +1310,11 @@ Current portfolio state including valuation and open positions.
 
 ```bash
 # User token — own portfolio
-curl -s "https://api.theeyebeta.store/api/v1/portfolio/state" \
+curl -s "https://dataapiprod.theeyebeta.store/api/v1/portfolio/state" \
   -H "Authorization: Bearer $USER_TOKEN"
 
 # Service token — specify owner
-curl -s "https://api.theeyebeta.store/api/v1/portfolio/state?owner_subject=user%3Aabc123" \
+curl -s "https://dataapiprod.theeyebeta.store/api/v1/portfolio/state?owner_subject=user%3Aabc123" \
   -H "Authorization: Bearer $SERVICE_TOKEN"
 ```
 
@@ -1299,7 +1353,7 @@ Return paged rows from one readable table.
 **Example**
 
 ```bash
-curl -s "https://api.theeyebeta.store/api/v1/data/tables/latest_snapshots/rows?symbol=AAPL&limit=5" \
+curl -s "https://dataapiprod.theeyebeta.store/api/v1/data/tables/latest_snapshots/rows?symbol=AAPL&limit=5" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -1380,7 +1434,7 @@ Paginated audit event log.
 **Example**
 
 ```bash
-curl -s "https://api.theeyebeta.store/api/v1/admin/audit-events?limit=20&category=trades" \
+curl -s "https://dataapiprod.theeyebeta.store/api/v1/admin/audit-events?limit=20&category=trades" \
   -H "Authorization: Bearer $ADMIN_TOKEN"
 ```
 
@@ -1417,7 +1471,7 @@ Available query names: `all_tickers`, `latest_prices`, `latest_signals`,
 **Example**
 
 ```bash
-curl -s "https://api.theeyebeta.store/api/v1/admin/named-query?query_name=all_tickers&limit=5" \
+curl -s "https://dataapiprod.theeyebeta.store/api/v1/admin/named-query?query_name=all_tickers&limit=5" \
   -H "Authorization: Bearer $ADMIN_TOKEN"
 ```
 
@@ -1537,7 +1591,7 @@ Recent intraday price tick records for a ticker (raw ingestion data).
 **Example**
 
 ```bash
-curl -s "https://api.theeyebeta.store/api/v1/admin/price-ticks/AAPL?limit=10" \
+curl -s "https://dataapiprod.theeyebeta.store/api/v1/admin/price-ticks/AAPL?limit=10" \
   -H "Authorization: Bearer $ADMIN_TOKEN"
 ```
 
@@ -1577,7 +1631,7 @@ Create an end-user account (`iam.users`).
 **Example**
 
 ```bash
-curl -s -X POST "https://api.theeyebeta.store/api/v1/admin/accounts" \
+curl -s -X POST "https://dataapiprod.theeyebeta.store/api/v1/admin/accounts" \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"email":"new.user@example.com","plan":"free"}'
@@ -1630,7 +1684,7 @@ guessing a short code within a looser limit.
 **Example**
 
 ```bash
-curl -s -X DELETE "https://api.theeyebeta.store/api/v1/admin/accounts/b6f0c1a2-..." \
+curl -s -X DELETE "https://dataapiprod.theeyebeta.store/api/v1/admin/accounts/b6f0c1a2-..." \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"approval_code":"<operator-code>","reason":"user requested deletion"}'
