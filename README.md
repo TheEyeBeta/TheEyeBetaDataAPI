@@ -5,6 +5,13 @@ Runtime data is served from the canonical `theeyebeta` schema only; the legacy `
 schema is deprecated for this API. This service is read-only. Editing/order/job systems
 live outside this repo.
 
+**Production consumers that must keep working:**
+
+1. **Lens / AI Financial Advisor** — backend service client `ai-advisor-production` → `/api/v1/*`
+2. **TheEyeBetaAdmin Frontend** (hosted + Tauri) — browser → `/admin/*` gateway → Prod admin-service; admin-service uses `theeyebeta-prod-admin` for DataAPI `/api/v1/*` data
+
+See [`docs/IAM_CONSUMER_INVENTORY.md`](docs/IAM_CONSUMER_INVENTORY.md). The `vi-app` name in examples is a **template / legacy IAM row**, not an active product.
+
 ## Architecture model
 
 - Private DB is reachable only by this API service.
@@ -184,17 +191,24 @@ journalctl --user -u theeyebeta-dataapi -f
 curl -s http://127.0.0.1:7000/health
 ```
 
-Service token flow:
+Service token flow (use a real prod client for gates — Lens or Admin bridge):
 
 ```bash
+# Lens / AI Financial Advisor
 TOKEN=$(curl -s -X POST "http://127.0.0.1:7000/api/v1/auth/service-token" \
-  -u "vi-app:<SERVICE_SECRET>" \
+  -u "ai-advisor-production:<SERVICE_SECRET>" \
   -H "Content-Type: application/json" \
-  -d '{"requested_scopes":["advisor:read","market:read","signals:read"]}' \
+  -d '{"requested_scopes":["advisor:read","market:read","signals:read","symbols:read"]}' \
   | sed -n 's/.*"access_token":"\([^"]*\)".*/\1/p')
 
 curl -s "http://127.0.0.1:7000/api/v1/advisor/context?ticker=AAPL" \
   -H "Authorization: Bearer ${TOKEN}"
+```
+
+Admin Frontend gateway (unauthenticated probe — expect 401 when up):
+
+```bash
+curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:7000/admin/auth/me
 ```
 
 Start all native services + tunnel (no Docker):
@@ -203,11 +217,11 @@ Start all native services + tunnel (no Docker):
 bash scripts/start_all_native.sh
 ```
 
-Remote smoke test (via Cloudflare Tunnel):
+Remote smoke test (via Cloudflare Tunnel) — prefer prod clients over template `vi-app`:
 
 ```bash
 API_BASE_URL="https://dataapiprod.theeyebeta.store" \
-SERVICE_CLIENT_ID="vi-app" \
+SERVICE_CLIENT_ID="ai-advisor-production" \
 SERVICE_CLIENT_SECRET="<SERVICE_SECRET>" \
 bash scripts/verify_remote_access.sh
 ```
