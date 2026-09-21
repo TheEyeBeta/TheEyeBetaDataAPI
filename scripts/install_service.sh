@@ -33,10 +33,16 @@ run_as_user() {
     sudo -u "$RUN_USER" XDG_RUNTIME_DIR="/run/user/${RUN_UID}" "$@"
 }
 
-# Create .venv if it doesn't exist
+# Create .venv if it doesn't exist. Pinned to python3.12 explicitly rather
+# than the host's default python3, so this doesn't silently drift if the
+# system default interpreter ever changes.
 if [ ! -d "$REPO_DIR/.venv" ]; then
-    echo "Creating .venv..."
-    sudo -u "$RUN_USER" python3 -m venv "$REPO_DIR/.venv"
+    if ! command -v python3.12 >/dev/null 2>&1; then
+        echo "Error: python3.12 is not installed on this host." >&2
+        exit 1
+    fi
+    echo "Creating .venv with python3.12..."
+    sudo -u "$RUN_USER" python3.12 -m venv "$REPO_DIR/.venv"
 fi
 
 echo "Installing dependencies..."

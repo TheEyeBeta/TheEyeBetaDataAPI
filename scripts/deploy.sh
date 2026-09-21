@@ -50,7 +50,31 @@ else
     log "Skipping git sync because DEPLOY_SKIP_GIT_SYNC is set."
 fi
 
+REQUIRED_PYTHON_VERSION="3.12"
+
+ensure_venv_python_version() {
+    local venv_python="$REPO_DIR/.venv/bin/python"
+    if [ -x "$venv_python" ]; then
+        local current_version
+        current_version="$("$venv_python" -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>/dev/null || true)"
+        if [ "$current_version" = "$REQUIRED_PYTHON_VERSION" ]; then
+            return 0
+        fi
+        log "Existing .venv is Python ${current_version:-unknown}, not $REQUIRED_PYTHON_VERSION — recreating."
+        rm -rf "$REPO_DIR/.venv"
+    fi
+
+    if ! command -v "python$REQUIRED_PYTHON_VERSION" >/dev/null 2>&1; then
+        log "ERROR: python$REQUIRED_PYTHON_VERSION is not installed on this host."
+        exit 1
+    fi
+
+    log "Creating .venv with python$REQUIRED_PYTHON_VERSION..."
+    "python$REQUIRED_PYTHON_VERSION" -m venv "$REPO_DIR/.venv"
+}
+
 if [ -z "${DEPLOY_SKIP_PIP_INSTALL:-}" ]; then
+    ensure_venv_python_version
     log "Installing dependencies..."
     "$REPO_DIR/.venv/bin/pip" install -q -r "$REPO_DIR/requirements.txt"
 else
