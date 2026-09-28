@@ -32,6 +32,42 @@ jobs:
         run: |
           pytest
 
+  integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: IAM SQL + least-privilege role against real Postgres
+        env:
+          DATABASE_URL: postgresql+psycopg://dummy:dummy@localhost:5432/dummy
+          JWT_SECRET: "ci-dummy-jwt-secret-at-least-32-bytes-long"
+          TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@localhost:5432/postgres
+        run: pytest tests/integration -q -rs
+
   lint:
     runs-on: ubuntu-latest
     steps:

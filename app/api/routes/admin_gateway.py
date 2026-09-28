@@ -94,11 +94,12 @@ def _requires_idempotency_key(path: str, method: str) -> bool:
 
 def _safe_headers(request: Request) -> dict[str, str]:
     headers = {
-        key: value
+        key.lower(): value
         for key, value in request.headers.items()
         if key.lower() in _FORWARDED_HEADERS
     }
-    headers.setdefault("X-Request-ID", getattr(request.state, "request_id", ""))
+    # Keys are lower-cased so this only fills a missing ID, never duplicates one.
+    headers.setdefault("x-request-id", getattr(request.state, "request_id", ""))
     return {key: value for key, value in headers.items() if value}
 
 
@@ -123,10 +124,10 @@ async def proxy_admin_request(path: str, request: Request) -> Response:
         )
     content_length = request.headers.get("content-length")
     if content_length and content_length.isdigit() and int(content_length) > settings.admin_gateway_max_body_bytes:
-        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Request too large")
+        raise HTTPException(status_code=status.HTTP_413_CONTENT_TOO_LARGE, detail="Request too large")
     body = await request.body()
     if len(body) > settings.admin_gateway_max_body_bytes:
-        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Request too large")
+        raise HTTPException(status_code=status.HTTP_413_CONTENT_TOO_LARGE, detail="Request too large")
     target = f"{settings.admin_service_url.rstrip('/')}/admin/{normalized_path}"
     try:
         async with httpx.AsyncClient(timeout=settings.admin_gateway_timeout_seconds) as client:

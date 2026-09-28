@@ -19,6 +19,7 @@ changed. This is compulsory; do not use GitHub Actions as the first test run.
 |---|---|
 | Python (`app/`, `tests/`, `scripts/*.py`) | `ruff check app tests scripts` + narrowest meaningful `pytest` set; broaden to full `pytest` when auth/shared behavior is touched |
 | `requirements*.txt` | `pip-audit -r requirements.txt` + full `pytest` |
+| `deploy/*.sql`, `app/auth/`, IAM repositories | `TEST_POSTGRES_URL=<scratch superuser URL> pytest tests/integration -q` (throwaway server only) |
 | Routes / scopes / env / scripts / CI | Also run the `readme-sync` skill obligations |
 | Docs-only | `git diff --check` + read the sections you edited |
 | Deploy/systemd/scripts | Confirm `--user` systemd commands match `AGENTS.md` (never invent `sudo systemctl` for this unit) |
