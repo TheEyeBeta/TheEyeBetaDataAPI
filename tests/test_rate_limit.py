@@ -8,7 +8,6 @@ from unittest.mock import MagicMock, patch
 
 from app.core.rate_limit import RateLimitMiddleware
 
-
 # ---------------------------------------------------------------------------
 # Unit tests — no FastAPI app import, no env vars needed
 # ---------------------------------------------------------------------------

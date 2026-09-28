@@ -13,7 +13,6 @@ from __future__ import annotations
 
 from app.domain.models import MacroSeriesInfo
 
-
 MACRO_SERIES_METADATA: dict[str, MacroSeriesInfo] = {
     'GDPC1': MacroSeriesInfo(code='GDPC1', name='Real GDP', category='growth', frequency='quarterly', units='Billions Chained 2017 USD SAAR', seasonal_adj=True, source='FRED'),
     'GDP': MacroSeriesInfo(code='GDP', name='Nominal GDP', category='growth', frequency='quarterly', units='Billions USD SAAR', seasonal_adj=True, source='FRED'),

@@ -9,6 +9,7 @@ import pytest
 
 def _make_user_token(scopes: list[str]) -> str:
     import jwt
+
     from app.core.config import settings
 
     now = datetime.now(UTC)
@@ -36,6 +37,7 @@ def _make_user_token(scopes: list[str]) -> str:
 ])
 def test_unauthenticated_request_returns_401(path: str) -> None:
     from fastapi.testclient import TestClient
+
     from app.main import app
 
     client = TestClient(app)
@@ -49,6 +51,7 @@ def test_unauthenticated_request_returns_401(path: str) -> None:
 
 def test_malformed_bearer_token_returns_401() -> None:
     from fastapi.testclient import TestClient
+
     from app.main import app
 
     client = TestClient(app)
@@ -66,6 +69,7 @@ def test_malformed_bearer_token_returns_401() -> None:
 
 def test_wrong_scope_returns_403() -> None:
     from fastapi.testclient import TestClient
+
     from app.main import app
 
     token = _make_user_token(scopes=["market:read"])
@@ -84,6 +88,7 @@ def test_wrong_scope_returns_403() -> None:
 
 def test_out_of_range_limit_returns_422() -> None:
     from fastapi.testclient import TestClient
+
     from app.main import app
 
     token = _make_user_token(scopes=["admin:read"])
@@ -97,6 +102,7 @@ def test_out_of_range_limit_returns_422() -> None:
 
 def test_422_message_does_not_leak_server_paths() -> None:
     from fastapi.testclient import TestClient
+
     from app.main import app
 
     token = _make_user_token(scopes=["admin:read"])
@@ -120,6 +126,7 @@ def test_422_message_does_not_leak_server_paths() -> None:
 
 def test_401_response_echoes_request_id() -> None:
     from fastapi.testclient import TestClient
+
     from app.main import app
 
     client = TestClient(app)
@@ -132,6 +139,7 @@ def test_401_response_echoes_request_id() -> None:
 
 def test_401_includes_request_id_header_when_not_provided() -> None:
     from fastapi.testclient import TestClient
+
     from app.main import app
 
     client = TestClient(app)

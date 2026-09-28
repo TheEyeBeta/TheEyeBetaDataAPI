@@ -6,7 +6,6 @@ from urllib.parse import urlparse
 from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-
 # RFC 7518 §3.2: an HS256 key must be at least as long as the hash output.
 # PyJWT >= 2.12 warns below this length.
 MIN_JWT_SECRET_BYTES = 32

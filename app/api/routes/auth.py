@@ -7,8 +7,8 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from sqlalchemy.orm import Session
 
 from app.api.dependencies.services import get_session
-from app.auth.service_clients import get_service_client, validate_requested_scopes, verify_service_client_secret
 from app.auth.scopes import LENS_DELEGATED_READ_SCOPES, SCOPE_LENS_DELEGATE, has_required_scopes
+from app.auth.service_clients import get_service_client, validate_requested_scopes, verify_service_client_secret
 from app.auth.tokens import create_delegated_access_token, decode_user_token
 from app.core.client_ip import get_client_ip
 from app.core.config import settings

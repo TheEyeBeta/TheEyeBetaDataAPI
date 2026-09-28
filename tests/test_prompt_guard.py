@@ -4,7 +4,6 @@ import pytest
 
 from app.services.prompt_guard import is_safe_question
 
-
 # ---------- Legitimate questions that must pass ----------
 
 @pytest.mark.parametrize("question", [

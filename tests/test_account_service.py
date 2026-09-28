@@ -23,7 +23,7 @@ class _FakeResult:
         self._row = row
         self._rows = rows or ([] if row is None else [row])
 
-    def mappings(self) -> "_FakeMappings":
+    def mappings(self) -> _FakeMappings:
         return _FakeMappings(self._row, self._rows)
 
 

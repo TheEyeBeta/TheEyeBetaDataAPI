@@ -2,7 +2,6 @@
 
 import os
 
-
 # Ensure required settings exist before app modules import `settings = Settings()`.
 os.environ["ENVIRONMENT"] = "development"
 os.environ["DEBUG"] = "false"

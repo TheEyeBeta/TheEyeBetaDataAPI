@@ -4,7 +4,7 @@ description: >
   Run before opening or updating a PR in TheEyeBetaDataAPI. Local, focused
   "personal CI" for the files actually changed — do not treat GitHub Actions as
   the first test run. Adapted from TheEyeProd AGENTS.md "Personal CI" pattern;
-  DataAPI-specific commands only (pytest / ruff if available). Not for trading
+  DataAPI-specific commands only (pytest / ruff / pip-audit). Not for trading
   or OMS work.
 ---
 
@@ -17,7 +17,8 @@ changed. This is compulsory; do not use GitHub Actions as the first test run.
 
 | Change type | Local check |
 |---|---|
-| Python (`app/`, `tests/`, `scripts/*.py`) | Narrowest meaningful `pytest` set; broaden to full `pytest` when auth/shared behavior is touched |
+| Python (`app/`, `tests/`, `scripts/*.py`) | `ruff check app tests scripts` + narrowest meaningful `pytest` set; broaden to full `pytest` when auth/shared behavior is touched |
+| `requirements*.txt` | `pip-audit -r requirements.txt` + full `pytest` |
 | Routes / scopes / env / scripts / CI | Also run the `readme-sync` skill obligations |
 | Docs-only | `git diff --check` + read the sections you edited |
 | Deploy/systemd/scripts | Confirm `--user` systemd commands match `AGENTS.md` (never invent `sudo systemctl` for this unit) |
@@ -25,9 +26,11 @@ changed. This is compulsory; do not use GitHub Actions as the first test run.
 ## Commands
 
 ```bash
-# From repo root, with venv active (CI uses Python 3.11; local 3.12 is fine)
+# From repo root, with venv active (pip install -r requirements-dev.txt; CI uses Python 3.12)
+ruff check app tests scripts
 pytest tests/test_<area>.py -q
-pytest -q   # before claiming the branch is ready
+pytest -q                     # before claiming the branch is ready
+pip-audit -r requirements.txt # when dependencies change
 ```
 
 If a check cannot run locally (e.g. no host Postgres for a live SQL apply), run

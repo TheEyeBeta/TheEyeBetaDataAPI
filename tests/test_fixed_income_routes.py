@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 
 import jwt
 from fastapi.testclient import TestClient
@@ -23,7 +23,7 @@ PREFIX = "/api/v1/fixed-income"
 
 
 def _make_user_token(scopes: list[str]) -> str:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     payload = {
         "sub": "user-123",
         "scope": " ".join(scopes),

@@ -32,6 +32,40 @@ jobs:
         run: |
           pytest
 
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install ruff
+        run: pip install "$(grep '^ruff==' requirements-dev.txt)"
+
+      - name: Ruff
+        run: ruff check app tests scripts
+
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install pip-audit
+        run: pip install "$(grep '^pip-audit==' requirements-dev.txt)"
+
+      - name: Audit runtime dependencies for known vulnerabilities
+        run: pip-audit -r requirements.txt
+
   deploy:
     needs: test
     runs-on: self-hosted

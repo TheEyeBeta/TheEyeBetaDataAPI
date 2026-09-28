@@ -199,7 +199,7 @@ class SQLReadOnlyDataRepository:
 
         where_sql = f" WHERE {' AND '.join(clauses)}" if clauses else ""
         sql = (
-            f"SELECT * FROM {q_table}"
+            f"SELECT * FROM {q_table}"  # noqa: S608
             f"{where_sql}"
             f" ORDER BY {_quote_ident(selected_order_by)} {direction}"
             " LIMIT :limit OFFSET :offset"

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -143,7 +144,7 @@ class PolicyRepository:
                   AND (expires_at IS NULL OR expires_at > now())
                   AND ({clauses})
                 LIMIT 1
-                """
+                """  # noqa: S608
             ),
             params,
         ).first()

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-
 SCOPE_MARKET_READ = "market:read"
 SCOPE_SYMBOLS_READ = "symbols:read"
 SCOPE_ANALYTICS_READ = "analytics:read"

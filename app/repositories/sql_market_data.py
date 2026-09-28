@@ -23,8 +23,8 @@ from app.domain.models import (
     EngineStatusEntry,
     EtlJobState,
     Exchange,
-    Industry,
     IncomeStatementQ,
+    Industry,
     MarketNewsItem,
     PortfolioPosition,
     PortfolioValuation,
@@ -360,7 +360,7 @@ class SQLMarketDataRepository(MarketDataRepository):
                       {'AND UPPER(i.symbol) = UPPER(:ticker)' if ticker else ''}
                     ORDER BY ls.signal_ts DESC NULLS LAST, i.symbol ASC
                     LIMIT :limit
-                    """
+                    """  # noqa: S608
                 ),
                 params,
             ).mappings().all()
@@ -484,7 +484,7 @@ class SQLMarketDataRepository(MarketDataRepository):
                     {where_clause}
                     ORDER BY created_at DESC
                     LIMIT :limit
-                    """
+                    """  # noqa: S608
                 ),
                 params,
             ).mappings().all()

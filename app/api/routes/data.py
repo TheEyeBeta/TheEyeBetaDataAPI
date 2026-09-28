@@ -8,16 +8,16 @@ from fastapi import APIRouter, Depends, Path, Query
 
 from app.api.dependencies.services import get_data_service
 from app.auth.dependencies import require_any_scope
+from app.auth.models import Principal
 from app.auth.scopes import (
-    SCOPE_ADVISOR_READ,
     SCOPE_ADMIN_READ,
+    SCOPE_ADVISOR_READ,
     SCOPE_ANALYTICS_READ,
     SCOPE_MARKET_READ,
     SCOPE_PORTFOLIO_READ,
     SCOPE_SIGNALS_READ,
     SCOPE_SYMBOLS_READ,
 )
-from app.auth.models import Principal
 from app.schemas.data import DataColumnsResponse, DataRowsResponse, DataTablesResponse
 from app.services.data_service import DataService
 
