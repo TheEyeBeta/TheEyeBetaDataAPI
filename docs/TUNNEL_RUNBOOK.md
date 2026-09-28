@@ -41,6 +41,12 @@ Source of truth: [`deploy/cloudflared-config.yml`](../deploy/cloudflared-config.
 
 Installed copy (requires sudo): `/etc/cloudflared/config.yml`
 
+> ⚠ **Known discrepancy:** this runbook routes `admin.theeyebeta.store` to
+> `127.0.0.1:8080`, but the committed config still routes it to `:7200`.
+> `fix_tunnel.sh` installs, and `sync_tunnel.sh` (also run by the watchdog)
+> pushes, whatever the committed file says. Confirm the live routing and fix
+> the file before running either script. See [`TECH_DEBT.md`](TECH_DEBT.md) item 1.
+
 ## Start everything (native)
 
 From `TheEyeBetaDataAPI`:

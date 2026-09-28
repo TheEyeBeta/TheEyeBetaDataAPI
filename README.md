@@ -1,339 +1,213 @@
 # TheEyeBetaDataAPI
 
-Secure multi-client data access layer between private PostgreSQL and external/internal consumers.
-Runtime data is served from the canonical `theeyebeta` schema only; the legacy `public`
-schema is deprecated for this API. This service is read-only. Editing/order/job systems
-live outside this repo.
+**The secure data gateway for The Eye.** One authenticated, versioned HTTP API
+(`/api/v1`) in front of a private PostgreSQL database, serving market data,
+fundamentals, technical indicators, trading signals, macro and fixed-income
+analytics to The Eye's products. Every caller gets a scoped, expiring token;
+the database is never exposed.
 
-**Production consumers that must keep working:**
+| | |
+|---|---|
+| **Who uses it** | **Lens** (AI financial advisor, client `ai-advisor-production`) and the **TheEyeBetaAdmin Frontend** (web + Tauri terminal, via the `/admin/*` gateway). Details: [`docs/IAM_CONSUMER_INVENTORY.md`](docs/IAM_CONSUMER_INVENTORY.md) |
+| **What it serves** | 60 documented operations (53 of them reads) across 21 route groups ([table below](#api-at-a-glance); full reference in [`docs/API_REFERENCE.md`](docs/API_REFERENCE.md)) |
+| **Stack** | Python 3.12 · FastAPI · SQLAlchemy 2 + psycopg 3 · PostgreSQL · PyJWT · gunicorn/uvicorn · Prometheus/Grafana · Cloudflare Tunnel · GitHub Actions |
+| **Status** | In active development; single production host. Known gaps: [`docs/TECH_DEBT.md`](docs/TECH_DEBT.md) |
 
-1. **Lens / AI Financial Advisor** — backend service client `ai-advisor-production` → `/api/v1/*`
-2. **TheEyeBetaAdmin Frontend** (hosted + Tauri) — browser → `/admin/*` gateway → Prod admin-service; admin-service uses `theeyebeta-prod-admin` for DataAPI `/api/v1/*` data
+## Architecture
 
-See [`docs/IAM_CONSUMER_INVENTORY.md`](docs/IAM_CONSUMER_INVENTORY.md). The `vi-app` name in examples is a **template / legacy IAM row**, not an active product.
+```mermaid
+flowchart LR
+    subgraph consumers[Consumers]
+        lens[Lens / AI Financial Advisor]
+        admin[TheEyeBetaAdmin Frontend<br/>web + Tauri]
+    end
 
-**Ops viewer:** open `GET /api/v1/admin/dashboard` and **Sign in** with an admin service
-client ID + secret (e.g. `admin-tool-production`). The page calls
-`POST /api/v1/auth/service-token` and renews the JWT while the tab stays open.
-Mint the client secret once on the Mac (`iam.issue_service_api_key`) and keep it in a
-password manager — do not SSH-mint a token every visit. See
-[`docs/OPS_DASHBOARD_LOGIN.md`](docs/OPS_DASHBOARD_LOGIN.md).
+    cf[Cloudflare Tunnel<br/>TLS at the edge]
 
-## Architecture model
+    subgraph host[Production host]
+        api[TheEyeBetaDataAPI<br/>FastAPI · gunicorn · :7000]
+        as[admin-service<br/>TheEyeBetaProd · :7200]
+        pg[(PostgreSQL<br/>theeyebeta · read-only<br/>iam · auth state)]
+        mon[Prometheus + Grafana]
+    end
 
-- Private DB is reachable only by this API service.
-- API contracts are domain-oriented and versioned under `/api/v1`.
-- Layering is enforced:
-  - routes/controllers
-  - auth dependencies (principal + scopes)
-  - services/use-cases
-  - repositories (SQL only)
-  - domain models/errors
-- Structured API errors are returned for auth, validation, and DB failures.
+    prod[TheEyeBetaProd pipelines]
+    openai[OpenAI API<br/>optional]
 
-## Auth model
+    lens -- service token --> cf
+    admin -- browser --> cf
+    cf --> api
+    api -- api_service role --> pg
+    api -- "/admin/* allowlisted proxy" --> as
+    api -. advisor chat .-> openai
+    mon -- scrape /metrics --> api
+    prod -- writes market data --> pg
+```
 
-- User auth:
-  - bearer JWT
-  - either symmetric secret validation (`USER_JWT_SECRET`) or OIDC/JWKS (`USER_JWT_JWKS_URL`)
-- Service auth:
-  - client credentials -> scoped bearer token via `POST /api/v1/auth/service-token`
-  - credentials are validated from PostgreSQL `iam` tables when `SERVICE_CLIENT_AUTH_MODE=database`
-  - optional fallback modes: `environment` or `hybrid`
-  - optional direct mTLS principal flow (no bearer) via trusted proxy headers:
-    - `X-Service-Client-Id`
-    - `X-Client-Cert-Subject`
-- JWT decode hardening (Phase 1):
-  - every `jwt.decode` uses an explicit algorithm allowlist (current signing alg only)
-  - `exp` and `iat` are always required
-  - `iss`/`aud` enforcement is gated by `JWT_REQUIRE_ISS_AUD` (default `false` grace period; see `docs/IAM_CONSUMER_INVENTORY.md`)
-- Refresh tokens (Phase 3, opt-in per client):
-  - set `iam.service_clients.short_lived_tokens_enabled = true` (after applying `deploy/iam_refresh_tokens.sql`)
-  - opted-in clients get shorter access TTL (`SHORT_LIVED_ACCESS_TOKEN_MINUTES`) plus `refresh_token` on `/service-token`
-  - `POST /api/v1/auth/refresh` rotates refresh tokens (reuse of an old refresh token is rejected)
-  - all other clients keep the existing long-lived `/service-token` response shape
-- Scope examples:
-  - `market:read`
-  - `analytics:read`
-  - `admin:read`
-  - `admin:write` (separate from `admin:read` — create/deactivate end-user accounts)
-  - `admin:*`
-- OpenAPI UI (`/docs`, `/redoc`, `/openapi.json`) is disabled when `ENVIRONMENT=production`.
+Request path inside the API: **route → auth dependency (principal + scopes +
+policy) → service → repository (SQL only) → domain models**. Errors are always
+`{"error": {"code", "message", "request_id"}}`.
 
-## API Reference
+- **Data:** the `theeyebeta` schema is owned and written by TheEyeBetaProd; this
+  API only reads it. The legacy `public` schema is not used.
+- **Writes:** only to the `iam` schema — token bookkeeping, refresh tokens, the
+  scope-denial audit log, and admin account create/deactivate (soft delete).
+- **Database access:** the least-privilege `api_service` role
+  ([`deploy/db_security.sql`](deploy/db_security.sql)), proven by the Postgres
+  integration tests.
 
-See **[docs/API_REFERENCE.md](docs/API_REFERENCE.md)** for the full endpoint reference including parameters, request/response schemas, required scopes, and curl examples.
+## Quickstart (about 5 minutes, no production access needed)
 
-### Capability route groups (summary)
+```bash
+git clone https://github.com/TheEyeBeta/TheEyeBetaDataAPI && cd TheEyeBetaDataAPI
+python3.12 -m venv .venv && source .venv/bin/activate
+pip install -r requirements-dev.txt
+
+# 1. Unit tests: no database needed
+pytest -q
+
+# 2. Run the API against a local/dev database (never the live one)
+python scripts/bootstrap_local_env.py \
+  --environment development \
+  --database-url "postgresql+psycopg://api_service:REPLACE_ME@127.0.0.1:5432/theeyebeta_dev"
+bash scripts/run_local.sh            # http://127.0.0.1:7000, auto-reload
+curl -s http://127.0.0.1:7000/health # {"status":"healthy","database":true,...}
+```
+
+`bootstrap_local_env.py` generates fresh secrets into `.env` (mode `600`) and
+requires an explicit `--environment`. Replace `REPLACE_ME` with the real
+password. In development, interactive docs are at `/docs`; they are disabled
+in production.
+
+**Integration tests** (IAM SQL + least-privilege role against a throwaway Postgres):
+
+```bash
+docker run -d --rm --name dataapi-pg -p 55432:5432 -e POSTGRES_PASSWORD=postgres postgres:16
+TEST_POSTGRES_URL=postgresql+psycopg://postgres:postgres@127.0.0.1:55432/postgres pytest tests/integration -q
+docker stop dataapi-pg
+```
+
+## API at a glance
+
+All routes need `Authorization: Bearer <token>` except health and the token
+endpoints. Full parameters and response shapes: [`docs/API_REFERENCE.md`](docs/API_REFERENCE.md).
 
 | Group | Scope | Endpoints |
 |---|---|---|
 | Health | — | `GET /health` |
-| Auth | — | `POST /api/v1/auth/service-token`, `POST /api/v1/auth/refresh` (opt-in), `POST /api/v1/auth/delegated-token` |
-| Market Data | `market:read` | `GET /api/v1/market-data/quotes` |
-| Symbols | `symbols:read` | `GET /api/v1/symbols/search`, `GET /api/v1/symbols/resolve` |
-| Tickers | `market:read` / `analytics:read` | `GET /api/v1/tickers/{ticker}`, price-history, corporate-actions, fundamentals |
+| Auth | — | `POST /api/v1/auth/service-token`, `POST /api/v1/auth/refresh` (opt-in), `POST /api/v1/auth/delegated-token` (`lens:delegate` clients) |
+| Market data | `market:read` | `GET /api/v1/market-data/quotes` |
+| Symbols | `symbols:read` | `GET /api/v1/symbols/search`, `/symbols/resolve` |
+| Tickers | `market:read` / `analytics:read` | `GET /api/v1/tickers/{ticker}`, `/price-history`, `/corporate-actions`, `/fundamentals` |
 | Financials | `analytics:read` | `GET /api/v1/financials/{ticker}/income\|balance\|cashflow\|quality` |
 | Indicators | `analytics:read` | `GET /api/v1/indicators/{ticker}/technical\|risk\|valuation\|returns` |
 | Analytics | `analytics:read` | `GET /api/v1/analytics/snapshots/{ticker}` |
 | Signals | `signals:read` | `GET /api/v1/signals/latest` |
 | News | `market:read` | `GET /api/v1/news/market`, `/news/ticker/{ticker}` |
 | Reference | `market:read` | `GET /api/v1/reference/countries\|currencies\|exchanges\|sectors\|industries\|calendar` |
-| Advisor | `advisor:read` | `GET /api/v1/advisor/context`, `POST /api/v1/advisor/chat` |
-| Portfolio | `portfolio:read` | `GET /api/v1/portfolio/state` (ownership-aware) |
-| Generic Data | read scope / `admin:read` | `GET /api/v1/data/tables`, columns, rows |
-| Admin | `admin:read` | `GET /api/v1/admin/dashboard` (ops HTML), `dashboard-data`, `accounts`, `audit-events`, `named-query`, `etl-jobs`, `engine-status`, `worker-heartbeats`, `price-ticks/{ticker}` |
-| Admin accounts | `admin:read` / `admin:write` | `GET /api/v1/admin/accounts` (list); `POST` create; `DELETE /api/v1/admin/accounts/{user_uuid}` soft-block (approval-code gated, 1 req/min) |
+| Macro | `market:read` | `GET /api/v1/macro/series`, `/series/{code}`, `/latest`, `/regime` (also served at `/v1/macro/*`) |
+| Fixed income | `market:read` | `GET /api/v1/fixed-income/regime`, `/history`, `/signals` |
+| Universe | `market:read` | `GET /api/v1/universe/active`, `/cap-events` |
+| Sectors | `market:read` | `GET /api/v1/sectors/daily` |
+| Advisor | `advisor:read` | `GET /api/v1/advisor/context`, `POST /api/v1/advisor/chat` (aliases `/api/v1/context`, `/api/v1/chat`) |
+| Portfolio | `portfolio:read` | `GET /api/v1/portfolio/state` (ownership-enforced) |
+| Generic data | `admin:read` | `GET /api/v1/data/tables`, `/tables/{table}/columns`, `/tables/{table}/rows` |
+| Admin | `admin:read` | `GET /api/v1/admin/dashboard` (ops HTML), `dashboard-data`, `audit-events`, `queries`, `named-query`, `etl-jobs`, `engine-status`, `worker-heartbeats`, `price-ticks/{ticker}`, `accounts` |
+| Admin accounts | `admin:write` | `POST /api/v1/admin/accounts`; `DELETE /api/v1/admin/accounts/{user_uuid}` (soft delete, approval-code gated, 1 req/min) |
+| Admin gateway | admin-service auth | `/admin/*` → admin-service, manifest-allowlisted, `X-Idempotency-Key` on mutations |
 
-## Production setup (Linux server — one time)
+## Security model
 
-The app runs natively on the machine — no Docker required.
+- **Service auth:** client credentials (HTTP Basic) → short scoped JWT from
+  `POST /api/v1/auth/service-token`. Credentials live hashed (bcrypt via
+  pgcrypto) in `iam.*` when `SERVICE_CLIENT_AUTH_MODE=database`. A client only
+  gets the scopes it requests, capped at its grants. Optional mTLS principal
+  via trusted proxy headers.
+- **User auth:** bearer JWT (symmetric `USER_JWT_SECRET` or OIDC/JWKS), personal
+  API keys (`teb_uk_…`, expiring, revoked automatically when the account is
+  deactivated), and Lens delegated tokens (tenant-bound, 1–15 min, read scopes only).
+- **JWT hardening:** explicit algorithm allowlists, required `exp`/`iat`,
+  ≥ 32-byte signing keys, zero-downtime rotation via `*_PREVIOUS` secrets,
+  opt-in refresh tokens with rotate-on-use.
+- **Policy kill switches:** tenant/application/subject/credential locks and
+  revocations are checked on every request when `POLICY_ENFORCEMENT_ENABLED=true`
+  (required in production); database errors fail closed.
+- **Transport and abuse:** trusted-host allowlist, production CORS limited to
+  the Admin Frontend origins, a per-IP rate limit on every request (Redis-backed
+  when `REDIS_URL` is set) plus tighter per-subject limits on admin routes, security
+  headers, 403 scope denials audited to `iam.auth_audit_log`.
+- **Destructive actions:** account deactivation needs `admin:write` **and**
+  `ADMIN_ACCOUNT_APPROVAL_CODE` (fail-closed if unset).
+- **Secrets:** one `.env` (mode `600`, git-ignored, never committed; git
+  history is clean). CI runs `pip-audit` on every push.
 
-**1. Generate your `.env`:**
+Scopes: `market:read`, `symbols:read`, `analytics:read`, `signals:read`,
+`advisor:read`, `portfolio:read`, `admin:read`, `admin:write`, `admin:*`,
+`lens:delegate`. See [`docs/API_REFERENCE.md#scopes`](docs/API_REFERENCE.md#scopes).
 
-```bash
-cd /path/to/TheEyeBetaDataAPI
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-python scripts/bootstrap_local_env.py \
-  --environment production \
-  --database-url "postgresql+psycopg://api_service:REPLACE_ME@127.0.0.1:5432/TheEyeBeta2025Live"
-```
+## Configuration
 
-If running behind Cloudflare Tunnel, add `--trust-proxy-headers`.
+Every setting is an environment variable read by `app/core/config.py`; the
+annotated template is [`.env.example`](.env.example). The ones you will touch:
 
-Connect as the least-privilege `api_service` role, never `postgres`. Create it
-once (as a DB owner, after the `deploy/iam_*.sql` files) with
-`psql -f deploy/db_security.sql`, then set its password out of band.
+| Variable | Purpose |
+|---|---|
+| `ENVIRONMENT` | `development` / `staging` / `production` (production enables stricter validation, disables `/docs`) |
+| `DATABASE_URL` | `postgresql+psycopg://api_service:…@host:5432/db` |
+| `JWT_SECRET`, `USER_JWT_SECRET` | ≥ 32-byte signing keys (generated by the bootstrap script) |
+| `SERVICE_CLIENT_AUTH_MODE` | `database` (production), `environment` or `hybrid` |
+| `TRUSTED_HOSTS`, `CORS_ORIGINS`, `TRUST_PROXY_HEADERS` | Edge/proxy settings |
+| `POLICY_ENFORCEMENT_ENABLED` | Must be `true` in production |
+| `ADMIN_GATEWAY_ENABLED`, `ADMIN_SERVICE_URL` | `/admin/*` proxy (loopback URL only) |
+| `ADMIN_ACCOUNT_APPROVAL_CODE` | Required to deactivate accounts; unset = always refused |
+| `OPENAI_API_KEY` | Optional; advisor chat falls back to a data summary without it |
 
-`.env` holds every runtime secret (`JWT_SECRET`, `DATABASE_URL`, `SERVICE_CLIENTS_JSON`,
-`ADMIN_ACCOUNT_APPROVAL_CODE`, ...) in one file. `bootstrap_local_env.py` and
-`rotate_secrets.py` both write it (and any `.env.bak.*` backup) with mode `600`
-(owner read/write only) automatically. If you ever hand-edit or copy `.env` by
-some other means, re-run `chmod 600 .env` — a `--user` systemd unit like
-`theeyebeta-dataapi` always runs as you, so 600 never breaks it. `.env.bak.*`
-is git-ignored; never `git add -f` one.
+## Testing and CI
 
-**2. Install as a background service (starts on boot, restarts on crash):**
-
-```bash
-sudo bash scripts/install_service.sh
-```
-
-This installs a **`--user`** systemd unit (`~/.config/systemd/user/theeyebeta-dataapi.service`),
-not a system one — `sudo` is only used to enable linger for your user so the
-service survives reboots without an active login session. Every command that
-manages it afterward drops the `sudo` (see Service management below); plain
-`sudo systemctl ... theeyebeta-dataapi` will report "Unit could not be found."
-
-Logs are available via journald: `journalctl --user -u theeyebeta-dataapi -f`
-
-**3. Install the GitHub Actions self-hosted runner (auto-deploys on push to `main`):**
-
-GitHub Actions runners are registered per-repo (this account has no org-level runner
-pool), and this machine also hosts a separate runner for `TheEyeBetaProd`. **Use a
-dedicated directory for this repo's runner — never reuse another repo's runner
-directory.** Reusing one re-registers it against this repo and breaks the other
-repo's deploys.
-
-```bash
-mkdir -p ~/actions-runner-dataapi && cd ~/actions-runner-dataapi
-```
-
-Go to: **GitHub → TheEyeBetaDataAPI repo Settings → Actions → Runners → New self-hosted runner → Linux**,
-and run the download + `./config.sh` commands GitHub provides from inside
-`~/actions-runner-dataapi`. Then:
-
-```bash
-sudo ./svc.sh install
-sudo ./svc.sh start
-```
-
-Verify registration succeeded before relying on it: `~/actions-runner-dataapi/.runner`
-should exist and its `gitHubUrl` should point at `TheEyeBetaDataAPI`, and
-`gh api repos/TheEyeBeta/TheEyeBetaDataAPI/actions/runners` should list it. Without
-a registered runner, every push to `main` queues the `deploy` job forever and it
-silently never runs — there's no error, just an indefinitely queued job in the
-Actions tab.
-
-After this, every push to `main` that passes CI will automatically pull the latest code, update dependencies, restart the service, and verify `/health`.
-
-## Local development
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements-dev.txt
-python scripts/bootstrap_local_env.py \
-  --environment development \
-  --database-url "postgresql+psycopg://api_service:REPLACE_ME@127.0.0.1:5432/theeyebeta_dev"
-bash scripts/run_local.sh
-```
-
-Default bind: `127.0.0.1:7000`
-
-## Service management
-
-`theeyebeta-dataapi` runs as a **`--user`** systemd unit, not a system one —
-no `sudo` for any of these (run as the same user the service was installed
-for). `server.sh`/`./server.sh status` is a separate, unrelated nohup-based
-path whose PID file doesn't track this service; it will report "Not running"
-even when the API is up. Use the commands below instead.
-
-```bash
-# Restart
-systemctl --user restart theeyebeta-dataapi
-
-# Stop
-systemctl --user stop theeyebeta-dataapi
-
-# Start
-systemctl --user start theeyebeta-dataapi
-
-# Status
-systemctl --user status theeyebeta-dataapi
-
-# Logs
-journalctl --user -u theeyebeta-dataapi -f
-```
-
-## Quick verification
-
-```bash
-curl -s http://127.0.0.1:7000/health
-```
-
-Service token flow (use a real prod client for gates — Lens or Admin bridge):
-
-```bash
-# Lens / AI Financial Advisor
-TOKEN=$(curl -s -X POST "http://127.0.0.1:7000/api/v1/auth/service-token" \
-  -u "ai-advisor-production:<SERVICE_SECRET>" \
-  -H "Content-Type: application/json" \
-  -d '{"requested_scopes":["advisor:read","market:read","signals:read","symbols:read"]}' \
-  | sed -n 's/.*"access_token":"\([^"]*\)".*/\1/p')
-
-curl -s "http://127.0.0.1:7000/api/v1/advisor/context?ticker=AAPL" \
-  -H "Authorization: Bearer ${TOKEN}"
-```
-
-Admin Frontend gateway (unauthenticated probe — expect 401 when up):
-
-```bash
-curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:7000/admin/auth/me
-```
-
-Start all native services + tunnel (no Docker):
-
-```bash
-bash scripts/start_all_native.sh
-```
-
-Remote smoke test (via Cloudflare Tunnel) — prefer prod clients over template `vi-app`:
-
-```bash
-API_BASE_URL="https://dataapiprod.theeyebeta.store" \
-SERVICE_CLIENT_ID="ai-advisor-production" \
-SERVICE_CLIENT_SECRET="<SERVICE_SECRET>" \
-bash scripts/verify_remote_access.sh
-```
-
-## Cloudflare Tunnel
-
-See **[docs/TUNNEL_RUNBOOK.md](docs/TUNNEL_RUNBOOK.md)** for the full TheEyeBeta2025 tunnel guide.
-
-| Public hostname | Local origin | Service |
+| Check | Command | CI job |
 |---|---|---|
-| `dataapiprod.theeyebeta.store` | `http://127.0.0.1:7000` | TheEyeBetaDataAPI (canonical production origin) |
-| `dataapi.theeyebeta.store` | `http://127.0.0.1:7000` | TheEyeBetaDataAPI (legacy alias) |
-| `api.theeyebeta.store` | `http://127.0.0.1:8000` | TheEyeBetaLocal Main API |
-| `admin.theeyebeta.store` | `http://127.0.0.1:8080` | The Eye hosted terminal |
+| Unit tests (no DB) | `pytest -q` | `test` |
+| Postgres integration (IAM SQL, grants, auth flows) | `TEST_POSTGRES_URL=… pytest tests/integration -q` | `integration` |
+| Lint (pyflakes, isort, bugbear, bandit) | `ruff check app tests scripts` | `lint` |
+| Dependency advisories | `pip-audit -r requirements.txt` | `audit` |
 
-Canonical config: [`deploy/cloudflared-config.yml`](deploy/cloudflared-config.yml)
+Every push to `main` that passes `test` is deployed by the self-hosted `deploy`
+job (`scripts/deploy.sh`: pull, install, restart, verify `/health`). Dependabot
+opens grouped minor/patch updates weekly.
 
-The web terminal and locally bundled Windows terminal both call
-`https://dataapiprod.theeyebeta.store` directly. Production CORS is restricted
-to the admin web origin and the Tauri application origins. Administrative
-mutations require `X-Idempotency-Key`; the gateway forwards bearer, request ID,
-confirmation, dry-run, CSRF, cookie, and idempotency headers to admin-service.
+## Operations
 
-```bash
-# Sync DNS + remote ingress (no sudo)
-bash scripts/sync_tunnel.sh
+| Task | Where |
+|---|---|
+| First-time host setup, systemd service, self-hosted runner | [`docs/PRODUCTION_RUNBOOK.md`](docs/PRODUCTION_RUNBOOK.md) |
+| Restart / logs | `systemctl --user restart theeyebeta-dataapi` · `journalctl --user -u theeyebeta-dataapi -f` (a `--user` unit: no `sudo`) |
+| Health | `curl -s http://127.0.0.1:7000/health` |
+| End-to-end verification | [`docs/E2E_VERIFICATION.md`](docs/E2E_VERIFICATION.md) |
+| Cloudflare Tunnel | [`docs/TUNNEL_RUNBOOK.md`](docs/TUNNEL_RUNBOOK.md) |
+| Rotate secrets (zero downtime) | `python scripts/rotate_secrets.py` → [`docs/SECRET_ROTATION_RUNBOOK.md`](docs/SECRET_ROTATION_RUNBOOK.md) |
+| Provision a service client | `python scripts/provision_db_service_client.py --client-id … --display-name "…" --app-type … --least-privilege --scope market:read` |
+| Personal API keys | [`docs/API_KEY_SCHEMA_RUNBOOK.md`](docs/API_KEY_SCHEMA_RUNBOOK.md) |
+| Ops dashboard sign-in | [`docs/OPS_DASHBOARD_LOGIN.md`](docs/OPS_DASHBOARD_LOGIN.md) |
+| Firewall, alerts, backups | [`docs/OPS_HARDENING.md`](docs/OPS_HARDENING.md) |
 
-# Permanent systemd fix (sudo once — required if dataapi returns 502)
-sudo bash scripts/fix_tunnel.sh
+Public hostnames (canonical config [`deploy/cloudflared-config.yml`](deploy/cloudflared-config.yml)):
+
+| Hostname | Origin | Service |
+|---|---|---|
+| `dataapiprod.theeyebeta.store` | `127.0.0.1:7000` | This API (canonical) |
+| `dataapi.theeyebeta.store` | `127.0.0.1:7000` | This API (legacy alias) |
+| `api.theeyebeta.store` | `127.0.0.1:8000` | TheEyeBetaLocal main API |
+| `admin.theeyebeta.store` | `127.0.0.1:8080` per `AGENTS.md` ⚠ | The Eye hosted terminal — the committed tunnel config still says `7200`; see [`docs/TECH_DEBT.md`](docs/TECH_DEBT.md) before running tunnel scripts |
+
+## Repository layout
+
+```
+app/        FastAPI app: api/routes → auth → services → repositories (SQL) → domain
+tests/      pytest suite; tests/integration needs a scratch Postgres
+scripts/    bootstrap, provisioning, secret rotation, deploy, tunnel helpers
+deploy/     IAM SQL + least-privilege role, nginx, Prometheus/Grafana, tunnel config
+docs/       API reference, runbooks, E2E verification, tech-debt log
+packages/   TypeScript client (cd packages/theeyebeta-dataapi-plugin && npm ci && npm run build)
 ```
 
-## Optional production hardening toggles
-
-- Require `iss`/`aud` on every JWT decode (after inventory confirms no legacy tokens):
-  - `JWT_REQUIRE_ISS_AUD=true`
-- OIDC/JWKS user JWT validation:
-  - `USER_JWT_JWKS_URL`, `USER_JWT_ISSUER`, `USER_JWT_AUDIENCE`, `USER_JWT_ALGORITHMS`
-- Redis rate limiting backend:
-  - `REDIS_URL`, `RATE_LIMIT_REDIS_PREFIX`
-- mTLS service principal flow:
-  - `SERVICE_MTLS_ENABLED=true`
-  - `SERVICE_MTLS_SUBJECTS_JSON`
-  - `TRUST_PROXY_HEADERS=true`
-
-Consumer inventory for rotation / claim-enforcement planning: [`docs/IAM_CONSUMER_INVENTORY.md`](docs/IAM_CONSUMER_INVENTORY.md).
-
-Additive IAM SQL (apply on host Postgres before enabling the matching feature flags):
-
-- `deploy/iam_refresh_tokens.sql` — refresh tokens + `short_lived_tokens_enabled`
-- `deploy/iam_auth_audit.sql` — `iam.auth_audit_log` + `least_privilege_default` column
-
-New DB-backed clients can be provisioned narrow with:
-
-```bash
-python scripts/provision_db_service_client.py \
-  --client-id example-reader \
-  --display-name "Example reader" \
-  --app-type vi-backend \
-  --least-privilege \
-  --scope market:read
-```
-
-
-## Rotate secrets
-
-```bash
-source .venv/bin/activate
-python scripts/rotate_secrets.py
-```
-
-Performs a **zero-downtime** JWT signing rotation: moves the live signing secret
-into `JWT_SIGNING_SECRET_PREVIOUS` / `USER_JWT_SECRET_PREVIOUS`, writes new
-`CURRENT` values (and keeps `JWT_SECRET` / `USER_JWT_SECRET` aliases aligned),
-and rotates `SERVICE_CLIENTS_JSON` client secrets. Restart the service, wait one
-full max token TTL, then clear `*_PREVIOUS`. Step-by-step:
-[`docs/SECRET_ROTATION_RUNBOOK.md`](docs/SECRET_ROTATION_RUNBOOK.md).
-
-## DB-backed API key schema
-
-See `docs/API_KEY_SCHEMA_RUNBOOK.md` for PostgreSQL schema and provisioning SQL.
-
-Provision a DB-backed service credential:
-
-```bash
-python scripts/provision_db_service_client.py \
-  --client-id vi-backend-prod \
-  --display-name "VI Backend Prod" \
-  --app-type vi-backend \
-  --allow-existing
-```
-
-## E2E verification
-
-See [`docs/E2E_VERIFICATION.md`](docs/E2E_VERIFICATION.md) for a complete read-only verification workflow.
-
-## TypeScript frontend tester
-
-```bash
-cd packages/theeyebeta-dataapi-plugin
-npm install
-npm run build
-```
+Contributor and agent conventions: [`AGENTS.md`](AGENTS.md). License: proprietary, see [`LICENSE`](LICENSE).
