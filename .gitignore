@@ -19,11 +19,6 @@ venv/
 .DS_Store
 Thumbs.db
 
-# Node (frontend)
-frontend/node_modules/
-frontend/dist/
-frontend/public/client.js
-
 # Runtime / local deployment artifacts
 server.log
 .server.pid

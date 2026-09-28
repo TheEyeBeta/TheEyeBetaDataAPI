@@ -7,7 +7,6 @@ __pycache__
 .env.example
 tests/
 docs/
-frontend/
 scripts/
 deploy/
 *.md
