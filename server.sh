@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
-# server.sh — start / stop the API on port 7000
+# server.sh — DEV-ONLY background runner for the API (nohup uvicorn).
+#
+# Not how the real service runs: that is the --user systemd unit
+# `theeyebeta-dataapi` (see AGENTS.md). For foreground dev with reload use
+# scripts/run_local.sh. Binds 127.0.0.1 unless API_HOST is set.
 #
 #   ./server.sh          → toggle (start if stopped, stop if running)
 #   ./server.sh start    → start in background
@@ -13,7 +17,8 @@ set -euo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PID_FILE="${REPO}/.server.pid"
 LOG_FILE="${REPO}/server.log"
-PORT=7000
+HOST="${API_HOST:-127.0.0.1}"
+PORT="${API_PORT:-7000}"
 
 # ── resolve python ───────────────────────────────────────────────────────────
 if [ -x "${REPO}/.venv/bin/python" ]; then
@@ -46,7 +51,7 @@ PY
 # ── commands ─────────────────────────────────────────────────────────────────
 start() {
   if _is_running; then
-    echo "Already running  (PID $(cat "${PID_FILE}"))  →  http://0.0.0.0:${PORT}"
+    echo "Already running  (PID $(cat "${PID_FILE}"))  →  http://${HOST}:${PORT}"
     return
   fi
 
@@ -54,7 +59,7 @@ start() {
   REPO="${REPO}" _load_env
 
   nohup "${PYTHON}" -m uvicorn app.main:app \
-    --host 0.0.0.0 \
+    --host "${HOST}" \
     --port "${PORT}" \
     >> "${LOG_FILE}" 2>&1 &
 
@@ -63,7 +68,7 @@ start() {
   # give it a moment then confirm
   sleep 1
   if _is_running; then
-    echo "Started  (PID $(cat "${PID_FILE}"))  →  http://0.0.0.0:${PORT}"
+    echo "Started  (PID $(cat "${PID_FILE}"))  →  http://${HOST}:${PORT}"
     echo "Logs:    ${LOG_FILE}"
   else
     echo "ERROR: failed to start — check ${LOG_FILE}" >&2
@@ -87,7 +92,7 @@ stop() {
 
 status() {
   if _is_running; then
-    echo "Running  (PID $(cat "${PID_FILE}"))  →  http://0.0.0.0:${PORT}"
+    echo "Running  (PID $(cat "${PID_FILE}"))  →  http://${HOST}:${PORT}"
   else
     echo "Not running"
   fi

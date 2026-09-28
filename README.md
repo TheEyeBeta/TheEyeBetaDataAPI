@@ -310,18 +310,6 @@ full max token TTL, then clear `*_PREVIOUS`. Step-by-step:
 
 See `docs/API_KEY_SCHEMA_RUNBOOK.md` for PostgreSQL schema and provisioning SQL.
 
-Use [OTHEREND_TEST.md](OTHEREND_TEST.md) for a complete laptop verification workflow with sample successful responses.
-
-Cross-platform Python script (Windows/Unix):
-
-```bash
-API_BASE_URL=https://dataapiprod.theeyebeta.store \
-VI_CLIENT_ID=vi-app VI_CLIENT_SECRET=<secret> \
-TRADE_CLIENT_ID=trade-engine TRADE_CLIENT_SECRET=<secret> \
-ADMIN_CLIENT_ID=admin-tool ADMIN_CLIENT_SECRET=<secret> \
-python scripts/other_end_e2e_test.py
-```
-
 Provision a DB-backed service credential:
 
 ```bash
@@ -334,7 +322,7 @@ python scripts/provision_db_service_client.py \
 
 ## E2E verification
 
-See `OTHEREND_TEST.md` for a complete verification workflow with sample responses.
+See [`docs/E2E_VERIFICATION.md`](docs/E2E_VERIFICATION.md) for a complete read-only verification workflow.
 
 ## TypeScript frontend tester
 

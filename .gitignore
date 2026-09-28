@@ -32,3 +32,9 @@ logs/
 
 # Self-hosted GitHub Actions runner
 actions-runner/
+
+# Test / lint caches
+.pytest_cache/
+.coverage
+htmlcov/
+.ruff_cache/

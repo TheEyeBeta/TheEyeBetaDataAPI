@@ -49,9 +49,21 @@ not a system one. `sudo systemctl restart theeyebeta-dataapi` (as written in
 some older docs/scripts) fails with "Unit could not be found." Verify with
 `curl -s http://127.0.0.1:7000/health` after restarting.
 
-`server.sh`/`./server.sh status` is a separate nohup-based path whose PID file
-does not track the gunicorn process systemd starts — it will report "Not
-running" even when the API is up. Don't trust it for status checks.
+`server.sh` is a **dev-only** background helper (nohup uvicorn, loopback by
+default). Its PID file does not track the gunicorn process systemd starts — it
+will report "Not running" even when the service is up. Never use it for status
+checks or to run the real service.
+
+## Project layout
+
+```
+app/        FastAPI app: api/routes → services → repositories (SQL) → domain
+tests/      pytest suite (no DB needed; tests/integration/ needs Postgres)
+scripts/    setup, provisioning, secret rotation, deploy, tunnel helpers
+deploy/     IAM SQL (apply by hand), nginx, Prometheus/Grafana, tunnel config
+docs/       API reference, runbooks, E2E verification, tech-debt log
+packages/   TypeScript client for the API
+```
 
 ## Hosted terminal ingress
 
