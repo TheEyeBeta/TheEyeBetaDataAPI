@@ -38,6 +38,13 @@ def _parse_args() -> argparse.Namespace:
         help="Database URL override. If omitted, reads DATABASE_URL from shell env.",
     )
     parser.add_argument(
+        "--environment",
+        required=True,
+        choices=("development", "staging", "production"),
+        help="Target environment written to ENVIRONMENT. Required so a local .env is "
+        "never silently production (or a production .env silently development).",
+    )
+    parser.add_argument(
         "--force",
         action="store_true",
         help="Overwrite output file if it already exists (creates timestamped backup).",
@@ -73,6 +80,8 @@ def _resolve_database_url(cli_value: str, template_values: dict[str, str]) -> st
     for candidate in candidates:
         if candidate and "REPLACE_ME" not in candidate:
             return candidate
+    if any("REPLACE_ME" in candidate for candidate in candidates if candidate):
+        raise ValueError("DATABASE_URL still contains the REPLACE_ME placeholder; substitute the real password.")
     raise ValueError(
         "DATABASE_URL is required. Pass --database-url or export DATABASE_URL before running this script."
     )
@@ -153,6 +162,7 @@ def main() -> int:
         print(str(exc), file=sys.stderr)
         return 1
 
+    values["ENVIRONMENT"] = args.environment
     # Local-safe default: do not trust forwarded headers unless requested.
     values["TRUST_PROXY_HEADERS"] = "true" if args.trust_proxy_headers else "false"
     values["SERVICE_CLIENT_AUTH_MODE"] = "database"

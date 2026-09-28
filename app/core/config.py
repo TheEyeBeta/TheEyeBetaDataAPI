@@ -7,6 +7,18 @@ from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+# RFC 7518 §3.2: an HS256 key must be at least as long as the hash output.
+# PyJWT >= 2.12 warns below this length.
+MIN_JWT_SECRET_BYTES = 32
+
+PRODUCTION_APPLICATION_ORIGINS: tuple[str, ...] = (
+    "https://admin.theeyebeta.store",
+    "http://tauri.localhost",
+    "https://tauri.localhost",
+    "tauri://localhost",
+)
+
+
 class Settings(BaseSettings):
     """Runtime configuration loaded from environment variables."""
 
@@ -97,8 +109,8 @@ class Settings(BaseSettings):
     @field_validator("jwt_secret")
     @classmethod
     def validate_secrets_length(cls, value: str) -> str:
-        if len(value.strip()) < 24:
-            raise ValueError("secret values must be at least 24 characters")
+        if len(value.strip().encode("utf-8")) < MIN_JWT_SECRET_BYTES:
+            raise ValueError(f"JWT_SECRET must be at least {MIN_JWT_SECRET_BYTES} bytes")
         return value
 
     @field_validator(
@@ -111,8 +123,8 @@ class Settings(BaseSettings):
     def validate_optional_secret_length(cls, value: str | None) -> str | None:
         if value is None or value == "":
             return None
-        if len(value.strip()) < 24:
-            raise ValueError("optional JWT secrets must be at least 24 characters when set")
+        if len(value.strip().encode("utf-8")) < MIN_JWT_SECRET_BYTES:
+            raise ValueError(f"optional JWT secrets must be at least {MIN_JWT_SECRET_BYTES} bytes when set")
         return value
 
     @field_validator("api_port")
@@ -223,14 +235,12 @@ class Settings(BaseSettings):
     @property
     def parsed_cors_origins(self) -> list[str]:
         """Return comma-separated CORS origins as a list."""
-        application_origins = [
-            "https://admin.theeyebeta.store",
-            "http://tauri.localhost",
-            "https://tauri.localhost",
-            "tauri://localhost",
-        ]
         configured = [o.strip() for o in self.cors_origins.split(",") if o.strip()]
-        return list(dict.fromkeys([*application_origins, *configured]))
+        if self.environment != "production":
+            return list(dict.fromkeys(configured))
+        # Production always admits the Admin Frontend (web + Tauri) so a trimmed
+        # CORS_ORIGINS can never lock out a release-gate consumer.
+        return list(dict.fromkeys([*PRODUCTION_APPLICATION_ORIGINS, *configured]))
 
     @property
     def parsed_trusted_hosts(self) -> list[str]:

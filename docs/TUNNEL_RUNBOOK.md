@@ -161,7 +161,8 @@ Bootstrap with proxy support:
 
 ```bash
 python scripts/bootstrap_local_env.py \
-  --database-url "postgresql+psycopg://..." \
+  --environment production \
+  --database-url "postgresql+psycopg://api_service:..." \
   --trust-proxy-headers
 ```
 

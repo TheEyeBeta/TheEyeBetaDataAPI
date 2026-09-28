@@ -37,7 +37,7 @@ def test_bootstrap_local_env_writes_env_as_owner_only(tmp_path: Path) -> None:
     script = REPO_ROOT / "scripts" / "bootstrap_local_env.py"
 
     _run(
-        [str(script), "--database-url", "postgresql+psycopg://u:p@127.0.0.1:5432/db"],
+        [str(script), "--database-url", "postgresql+psycopg://u:p@127.0.0.1:5432/db", "--environment", "development"],
         cwd=tmp_path,
     )
 
@@ -51,12 +51,12 @@ def test_bootstrap_local_env_backup_is_owner_only(tmp_path: Path) -> None:
     script = REPO_ROOT / "scripts" / "bootstrap_local_env.py"
 
     _run(
-        [str(script), "--database-url", "postgresql+psycopg://u:p@127.0.0.1:5432/db"],
+        [str(script), "--database-url", "postgresql+psycopg://u:p@127.0.0.1:5432/db", "--environment", "development"],
         cwd=tmp_path,
     )
     # Second run with --force triggers the backup-then-overwrite path.
     _run(
-        [str(script), "--database-url", "postgresql+psycopg://u:p@127.0.0.1:5432/db", "--force"],
+        [str(script), "--database-url", "postgresql+psycopg://u:p@127.0.0.1:5432/db", "--environment", "development", "--force"],
         cwd=tmp_path,
     )
 
@@ -69,7 +69,7 @@ def test_rotate_secrets_keeps_env_and_backup_owner_only(tmp_path: Path) -> None:
     shutil.copy(REPO_ROOT / ".env.example", tmp_path / ".env.example")
     bootstrap = REPO_ROOT / "scripts" / "bootstrap_local_env.py"
     _run(
-        [str(bootstrap), "--database-url", "postgresql+psycopg://u:p@127.0.0.1:5432/db"],
+        [str(bootstrap), "--database-url", "postgresql+psycopg://u:p@127.0.0.1:5432/db", "--environment", "development"],
         cwd=tmp_path,
     )
 
@@ -89,3 +89,29 @@ def test_rotate_secrets_keeps_env_and_backup_owner_only(tmp_path: Path) -> None:
     # ".env.env.bak.<timestamp>" because ".env" has no pathlib suffix.
     assert ".env.env.bak." not in backups[0]
     assert _mode(Path(backups[0])) == _OWNER_RW_ONLY
+
+
+def test_bootstrap_requires_explicit_environment(tmp_path: Path) -> None:
+    shutil.copy(REPO_ROOT / ".env.example", tmp_path / ".env.example")
+    script = REPO_ROOT / "scripts" / "bootstrap_local_env.py"
+    result = subprocess.run(
+        [sys.executable, str(script), "--database-url", "postgresql+psycopg://u:p@127.0.0.1:5432/db"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode != 0
+    assert "--environment" in result.stderr
+    assert not (tmp_path / ".env").exists()
+
+
+def test_bootstrap_writes_requested_environment(tmp_path: Path) -> None:
+    shutil.copy(REPO_ROOT / ".env.example", tmp_path / ".env.example")
+    script = REPO_ROOT / "scripts" / "bootstrap_local_env.py"
+    _run(
+        [str(script), "--database-url", "postgresql+psycopg://u:p@127.0.0.1:5432/db", "--environment", "development"],
+        cwd=tmp_path,
+    )
+    lines = (tmp_path / ".env").read_text(encoding="utf-8").splitlines()
+    assert "ENVIRONMENT=development" in lines
+    assert "ENVIRONMENT=production" not in lines

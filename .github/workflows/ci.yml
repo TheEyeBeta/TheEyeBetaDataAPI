@@ -28,7 +28,7 @@ jobs:
       - name: Run tests
         env:
           DATABASE_URL: postgresql+psycopg://dummy:dummy@localhost:5432/dummy
-          JWT_SECRET: "this-is-a-dummy-jwt-secret-24c"
+          JWT_SECRET: "ci-dummy-jwt-secret-at-least-32-bytes-long"
         run: |
           pytest
 

@@ -97,10 +97,15 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 python scripts/bootstrap_local_env.py \
-  --database-url "postgresql+psycopg://postgres:REPLACE_ME@localhost:5432/TheEyeBeta2025Live"
+  --environment production \
+  --database-url "postgresql+psycopg://api_service:REPLACE_ME@127.0.0.1:5432/TheEyeBeta2025Live"
 ```
 
 If running behind Cloudflare Tunnel, add `--trust-proxy-headers`.
+
+Connect as the least-privilege `api_service` role, never `postgres`. Create it
+once (as a DB owner, after the `deploy/iam_*.sql` files) with
+`psql -f deploy/db_security.sql`, then set its password out of band.
 
 `.env` holds every runtime secret (`JWT_SECRET`, `DATABASE_URL`, `SERVICE_CLIENTS_JSON`,
 `ADMIN_ACCOUNT_APPROVAL_CODE`, ...) in one file. `bootstrap_local_env.py` and
@@ -161,7 +166,8 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements-dev.txt
 python scripts/bootstrap_local_env.py \
-  --database-url "postgresql+psycopg://postgres:REPLACE_ME@localhost:5432/TheEyeBeta2025Live"
+  --environment development \
+  --database-url "postgresql+psycopg://api_service:REPLACE_ME@127.0.0.1:5432/theeyebeta_dev"
 bash scripts/run_local.sh
 ```
 

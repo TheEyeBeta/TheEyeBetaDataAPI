@@ -83,6 +83,11 @@ you, so this never breaks anything.
 - `scripts/bootstrap_local_env.py` and `scripts/rotate_secrets.py` both
   `chmod 600` `.env` and any `.env.bak.*` backup automatically. If you ever
   hand-create or copy `.env` by some other means, `chmod 600 .env` yourself.
+- `bootstrap_local_env.py` requires `--environment development|staging|production`
+  (no default, on purpose). `DATABASE_URL` should use the least-privilege
+  `api_service` role from `deploy/db_security.sql`, never `postgres`.
+- JWT signing secrets (`JWT_SECRET`, `JWT_SIGNING_SECRET_*`, `USER_JWT_SECRET*`)
+  must be >= 32 bytes; the app refuses to start otherwise. Generated ones are 48.
 - `.env.bak.*` is git-ignored. Never `git add -f` one — a rotation or forced
   bootstrap run followed by a broad `git add -A`/`git add .` is exactly how a
   full secrets dump ends up in history.

@@ -169,3 +169,37 @@ def test_openapi_disabled_in_production() -> None:
     assert openapi_route_kwargs("development")["docs_url"] == "/docs"
     client = TestClient(app)
     assert client.get("/openapi.json").status_code == 200
+
+
+def _settings(**overrides) -> Settings:
+    base = {
+        "database_url": settings.database_url,
+        "jwt_secret": settings.jwt_secret,
+        "trusted_hosts": "dataapiprod.theeyebeta.store",
+        "policy_enforcement_enabled": True,
+        "service_client_auth_mode": "environment",
+        "service_clients_json": settings.service_clients_json,
+    }
+    base.update(overrides)
+    return Settings(**base)
+
+
+def test_jwt_secrets_must_be_at_least_32_bytes() -> None:
+    with pytest.raises(ValidationError):
+        _settings(jwt_secret="x" * 31)
+    with pytest.raises(ValidationError):
+        _settings(jwt_signing_secret_current="y" * 31)
+    with pytest.raises(ValidationError):
+        _settings(user_jwt_secret="z" * 31)
+    assert _settings(jwt_secret="x" * 32).jwt_secret == "x" * 32
+
+
+def test_production_cors_always_admits_admin_frontend_origins() -> None:
+    prod = _settings(environment="production", cors_origins="")
+    assert "https://admin.theeyebeta.store" in prod.parsed_cors_origins
+    assert "tauri://localhost" in prod.parsed_cors_origins
+
+
+def test_non_production_cors_is_exactly_the_configured_list() -> None:
+    dev = _settings(environment="development", cors_origins="http://localhost:5173")
+    assert dev.parsed_cors_origins == ["http://localhost:5173"]
