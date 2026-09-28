@@ -28,7 +28,6 @@ jobs:
       - name: Run tests
         env:
           DATABASE_URL: postgresql+psycopg://dummy:dummy@localhost:5432/dummy
-          API_KEY: "this-is-a-dummy-api-key-with-24chars"
           JWT_SECRET: "this-is-a-dummy-jwt-secret-24c"
         run: |
           pytest

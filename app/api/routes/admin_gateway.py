@@ -102,7 +102,11 @@ def _safe_headers(request: Request) -> dict[str, str]:
     return {key: value for key, value in headers.items() if value}
 
 
-@router.api_route("/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
+# Opaque catch-all proxy: excluded from OpenAPI (one function across five
+# methods also produced duplicate operation IDs).
+@router.api_route(
+    "/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"], include_in_schema=False
+)
 async def proxy_admin_request(path: str, request: Request) -> Response:
     """Forward one approved request without interpreting administrator identity."""
     if not settings.admin_gateway_enabled:
