@@ -40,7 +40,7 @@ def answer_question(question: str, ticker: str | None, context: dict[str, Any]) 
             return (
                 f"OpenAI is not configured. Snapshot for {snap.get('ticker')}: "
                 f"price={snap.get('last_price')}, rsi_14={snap.get('rsi_14')}, "
-                f"price_change_pct={snap.get('price_change_pct')}",
+                f"price_change_pct={snap.get('price_change_pct')}"
             )
         return "OpenAI is not configured. Provide OPENAI_API_KEY to enable AI responses."
 
