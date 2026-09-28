@@ -29,9 +29,11 @@ def register_error_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(RequestValidationError)
     async def handle_validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
+        # str(exc.errors()), not str(exc): since FastAPI 0.13x, str(exc) appends the
+        # handler's source file path and line number, which must never reach clients.
         return JSONResponse(
             status_code=422,
-            content={"error": {"code": "REQUEST_VALIDATION_ERROR", "message": str(exc), "request_id": _request_id(request)}},
+            content={"error": {"code": "REQUEST_VALIDATION_ERROR", "message": str(exc.errors()), "request_id": _request_id(request)}},
         )
 
     @app.exception_handler(Exception)

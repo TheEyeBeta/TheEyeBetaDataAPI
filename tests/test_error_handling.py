@@ -95,6 +95,25 @@ def test_out_of_range_limit_returns_422() -> None:
     assert resp.status_code == 422
 
 
+def test_422_message_does_not_leak_server_paths() -> None:
+    from fastapi.testclient import TestClient
+    from app.main import app
+
+    token = _make_user_token(scopes=["admin:read"])
+    client = TestClient(app)
+    resp = client.get(
+        "/api/v1/admin/audit-events?limit=9999",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 422
+    error = resp.json()["error"]
+    assert error["code"] == "REQUEST_VALIDATION_ERROR"
+    # Contract consumers (Lens, Admin) have always received the repr of the error list.
+    assert error["message"].startswith("[{'type': 'less_than_equal'")
+    assert "File " not in error["message"]
+    assert ".py" not in error["message"]
+
+
 # ---------------------------------------------------------------------------
 # Request-ID propagation
 # ---------------------------------------------------------------------------
