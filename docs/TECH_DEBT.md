@@ -112,6 +112,15 @@ Legend: **Risk** = what goes wrong if left alone. **Plan** = the concrete next s
 - **Plan:** adopt `ruff format` in one isolated commit, add `mypy` on
   `app/auth` and `app/core` first, and make `deploy` depend on all checks.
 
+### 13. Alert rules are committed but may not be live — *Minor*
+- `/metrics` is exposed and `deploy/prometheus/rules/dataapi_auth.yml` defines
+  three auth alerts. But per the 2026-09-14 host probe in `OPS_HARDENING.md`,
+  the live Prometheus loads TheEyeBetaProd's config, not this repo's, and
+  Grafana was unhealthy.
+- **Risk:** an auth-failure spike or a token-endpoint outage goes unnoticed.
+- **Plan:** add this repo's rule file to the live Prometheus config, send one
+  test alert end-to-end, and record where alerts are delivered.
+
 ## Resolved in the 2026-09 cleanup
 
 | Item | Resolution |

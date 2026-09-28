@@ -61,7 +61,7 @@ app/        FastAPI app: api/routes → services → repositories (SQL) → doma
 tests/      pytest suite (no DB needed; tests/integration/ needs Postgres)
 scripts/    setup, provisioning, secret rotation, deploy, tunnel helpers
 deploy/     IAM SQL (apply by hand), nginx, Prometheus/Grafana, tunnel config
-docs/       API reference, runbooks, E2E verification, tech-debt log
+docs/       API reference, runbooks, E2E verification, TECH_STACK/ARCHITECTURE/TECH_DEBT
 packages/   TypeScript client for the API
 ```
 

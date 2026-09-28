@@ -12,6 +12,7 @@ the database is never exposed.
 | **What it serves** | 60 documented operations (53 of them reads) across 21 route groups ([table below](#api-at-a-glance); full reference in [`docs/API_REFERENCE.md`](docs/API_REFERENCE.md)) |
 | **Stack** | Python 3.12 · FastAPI · SQLAlchemy 2 + psycopg 3 · PostgreSQL · PyJWT · gunicorn/uvicorn · Prometheus/Grafana · Cloudflare Tunnel · GitHub Actions |
 | **Status** | In active development; single production host. Known gaps: [`docs/TECH_DEBT.md`](docs/TECH_DEBT.md) |
+| **Reviewer pack** | [Tech stack (1 page)](docs/TECH_STACK.md) · [Architecture](docs/ARCHITECTURE.md) · [Technical debt](docs/TECH_DEBT.md) |
 
 ## Architecture
 
