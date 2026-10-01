@@ -68,6 +68,49 @@ jobs:
           TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@localhost:5432/postgres
         run: pytest tests/integration -q -rs
 
+  prod-contract:
+    # This API, as api_service, against TheEyeBetaProd's schema at
+    # contracts/prod/PROD_SHA (generated snapshot) with Prod's api_readonly
+    # grants, the iam SQL and db_security.sql. Fails on missing tables,
+    # renamed columns, incompatible types, invalid SQL or broken serialization.
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: HTTP API against Prod schema
+        env:
+          PROD_CONTRACT: "1"
+          TEST_POSTGRES_URL: postgresql+psycopg://postgres:postgres@localhost:5432/postgres
+          DATABASE_URL: postgresql+psycopg://api_service:ci-contract-only-password@localhost:5432/dataapi_contract
+          SERVICE_CLIENT_AUTH_MODE: database
+          POLICY_ENFORCEMENT_ENABLED: "true"
+          JWT_SECRET: "ci-dummy-jwt-secret-at-least-32-bytes-long"
+        run: pytest tests/contract -q -rs
+
   lint:
     runs-on: ubuntu-latest
     steps:

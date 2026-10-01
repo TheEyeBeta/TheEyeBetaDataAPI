@@ -227,6 +227,13 @@ def test_auth_audit_row_is_written_as_api_service(
 # ---------------------------------------------------------------------------
 
 
+@pytest.fixture(scope="module")
+def prod_internal_table(owner_engine: Engine) -> None:
+    """A table Prod creates later (e.g. a new migration) is not auto-granted to api_service."""
+    with owner_engine.connect() as conn:
+        conn.execute(text("CREATE TABLE IF NOT EXISTS theeyebeta.prod_internal_canary (secret text)"))
+
+
 @pytest.mark.parametrize(
     "statement",
     [
@@ -248,16 +255,16 @@ def test_auth_audit_row_is_written_as_api_service(
         "ALTER TABLE theeyebeta.instruments ADD COLUMN pwned int",
         "DROP TABLE theeyebeta.market_news",
         "CREATE TABLE iam.escalation (id int)",
-        # Prod-internal objects outside the allowlist stay invisible
-        "SELECT 1 FROM theeyebeta.signals LIMIT 1",
-        "SELECT 1 FROM theeyebeta.prices_intraday LIMIT 1",
+        # Prod-internal objects outside the allowlist stay invisible (canary
+        # created by the prod_internal_table fixture, like Prod's agent tables)
+        "SELECT 1 FROM theeyebeta.prod_internal_canary LIMIT 1",
         # no role or privilege escalation
         "SET ROLE postgres",
         "ALTER ROLE api_service SUPERUSER",
         "CREATE ROLE escalation LOGIN",
     ],
 )
-def test_api_service_privilege_boundary(app_session: Session, statement: str) -> None:
+def test_api_service_privilege_boundary(prod_internal_table: None, app_session: Session, statement: str) -> None:
     with pytest.raises(ProgrammingError) as denied:
         app_session.execute(text(statement))
     app_session.rollback()

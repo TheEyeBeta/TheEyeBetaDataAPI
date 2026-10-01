@@ -1,5 +1,5 @@
 # theeyebeta objects TheEyeBetaDataAPI reads, created by TheEyeBetaProd migrations.
-# Plus view base tables (signals, prices_intraday) that latest_snapshots needs.
+# latest_snapshots is modelled as the production worker table (see the snapshot header).
 # Keep in sync with tests/contract/test_prod_schema_contract.py::test_every_referenced_object_is_accounted_for.
 audit_cap_events
 audit_log
@@ -26,10 +26,8 @@ market_news
 orders
 positions
 prices_daily
-prices_intraday
 public_ticker_map
 sector_daily
-signals
 trading_calendar
 trask_components
 worker_heartbeats

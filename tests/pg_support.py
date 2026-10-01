@@ -6,6 +6,8 @@ against TheEyeBetaProd's schema). Layers, in the order production gets them:
 1. contracts/prod/theeyebeta_schema.sql  - Prod-owned theeyebeta objects
    DataAPI reads, generated from TheEyeBetaProd's migrations at
    contracts/prod/PROD_SHA (scripts/prod_contract_snapshot.sh);
+   + contracts/prod/host_only_assumed.sql   - host-only objects in the shape
+   DataAPI assumes (NOT Prod-verified; see that file);
 2. contracts/prod/api_readonly_grants.sql - the role/grants Prod gives DataAPI;
 3. deploy/iam_*.sql                       - DataAPI-owned iam schema;
 4. deploy/db_security.sql                 - the api_service login role.
@@ -70,6 +72,7 @@ def build_production_layout(owner_url: URL, app_password: str) -> None:
     assert_scratch(owner_url)
     conninfo = libpq(owner_url)
     run_sql_file(conninfo, PROD_CONTRACT_DIR / "theeyebeta_schema.sql")
+    run_sql_file(conninfo, PROD_CONTRACT_DIR / "host_only_assumed.sql")
     run_sql_file(conninfo, PROD_CONTRACT_DIR / "api_readonly_grants.sql")
     for name in IAM_SQL_FILES:
         run_sql_file(conninfo, REPO_ROOT / "deploy" / name)

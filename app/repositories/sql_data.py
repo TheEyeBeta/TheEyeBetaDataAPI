@@ -17,6 +17,14 @@ from app.schemas.data import DataColumnInfo, DataTableInfo
 _SCHEMA = "theeyebeta"
 _IDENTIFIER_RE = r"^[A-Za-z_][A-Za-z0-9_]*$"
 _ORDER_DIRECTIONS = {"asc": "ASC", "desc": "DESC"}
+# theeyebeta.public_ticker_map has no symbol column (TheEyeBetaProd migration
+# 0024); resolve the symbol through instruments.
+TICKER_ID_SYMBOL_CLAUSE = (
+    "ticker_id IN ("
+    "SELECT m.public_ticker_id FROM theeyebeta.public_ticker_map m "
+    "JOIN theeyebeta.instruments i ON i.id = m.instrument_id "
+    "WHERE UPPER(i.symbol) = UPPER(:symbol))"
+)
 _FILTER_OPS = {
     "eq": "=",
     "ne": "!=",
@@ -166,11 +174,7 @@ class SQLReadOnlyDataRepository:
                     "WHERE UPPER(symbol) = UPPER(:symbol) LIMIT 1)"
                 )
             elif "ticker_id" in columns:
-                clauses.append(
-                    "ticker_id IN ("
-                    "SELECT public_ticker_id FROM theeyebeta.public_ticker_map "
-                    "WHERE UPPER(symbol) = UPPER(:symbol))"
-                )
+                clauses.append(TICKER_ID_SYMBOL_CLAUSE)
             elif "symbol" in columns:
                 clauses.append("UPPER(symbol) = UPPER(:symbol)")
             else:
