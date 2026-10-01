@@ -16,6 +16,11 @@ ignore = [
 "tests/**" = ["S101", "S105", "S106", "S108", "S603", "S608"]
 "scripts/**" = ["S603", "S607"]
 
+[tool.mypy]
+python_version = "3.12"
+files = ["app"]
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]

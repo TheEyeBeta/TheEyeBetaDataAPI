@@ -112,7 +112,12 @@ a registered runner, every push to `main` queues the `deploy` job forever and it
 silently never runs — there's no error, just an indefinitely queued job in the
 Actions tab.
 
-After this, every push to `main` that passes CI will automatically pull the latest code, update dependencies, restart the service, and verify `/health`.
+After this, every push to `main` that passes **all** CI jobs is deployed:
+`scripts/deploy.sh` checks out that exact commit (`DEPLOY_SHA`), installs
+dependencies, restarts the `--user` unit, and requires `/health` to report
+`"database": true`; otherwise it restores the previous commit and fails. If the
+unit is not visible it fails instead of starting an unmanaged tmux process.
+`scripts/e2e_admin_smoke.py` then checks the Admin path.
 
 ### Service management
 

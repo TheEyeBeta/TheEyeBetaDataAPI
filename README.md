@@ -168,14 +168,22 @@ annotated template is [`.env.example`](.env.example). The ones you will touch:
 
 | Check | Command | CI job |
 |---|---|---|
-| Unit tests (no DB) | `pytest -q` | `test` |
-| Postgres integration (IAM SQL, grants, auth flows) | `TEST_POSTGRES_URL=… pytest tests/integration -q` | `integration` |
-| Lint (pyflakes, isort, bugbear, bandit) | `ruff check app tests scripts` | `lint` |
-| Dependency advisories | `pip-audit -r requirements.txt` | `audit` |
+| Unit tests (no DB), incl. docs/OpenAPI drift, tunnel routing, deploy script, CI gate, Prometheus rule tests | `pytest -q` | `test` |
+| Postgres integration (IAM SQL, grants, privilege boundaries, refresh families) | `TEST_POSTGRES_URL=… pytest tests/integration -q` | `integration` |
+| HTTP API against TheEyeBetaProd's schema at `contracts/prod/PROD_SHA`, as `api_service` | `PROD_CONTRACT=1 TEST_POSTGRES_URL=… DATABASE_URL=…api_service…/dataapi_contract pytest tests/contract -q` (see `ci.yml`) | `prod-contract` |
+| Lint, format, shell syntax, `promtool` rules/config | `ruff check .` · `ruff format --check .` | `lint` |
+| Types (`app/`) | `mypy` | `typecheck` |
+| Dependency advisories (runtime + dev) | `pip-audit -r requirements-dev.txt` | `audit` |
+| Secret scan, full history | `gitleaks git --config .gitleaks.toml .` | `secrets` |
 
-Every push to `main` that passes `test` is deployed by the self-hosted `deploy`
-job (`scripts/deploy.sh`: pull, install, restart, verify `/health`). Dependabot
-opens grouped minor/patch updates weekly.
+A push to `main` is deployed by the self-hosted `deploy` job only after **every**
+job above passes (`tests/test_ci_gates.py` enforces this). `scripts/deploy.sh`
+checks out the tested commit, installs, restarts the `--user` unit, requires
+`/health` to report `"database": true`, and rolls back to the previous commit if
+it does not. `scripts/e2e_admin_smoke.py` then checks the Admin path (no
+secrets). Regenerate the Prod contract snapshot with
+`scripts/prod_contract_snapshot.sh` when `PROD_SHA` moves. Dependabot opens
+grouped minor/patch updates weekly.
 
 ## Operations
 

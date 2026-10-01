@@ -125,8 +125,45 @@ jobs:
       - name: Install ruff
         run: pip install "$(grep '^ruff==' requirements-dev.txt)"
 
-      - name: Ruff
-        run: ruff check app tests scripts
+      - name: Ruff lint
+        run: ruff check .
+
+      - name: Ruff format
+        run: ruff format --check .
+
+      - name: Shell syntax
+        run: for f in scripts/*.sh; do bash -n "$f"; done
+
+      - name: Prometheus rules and config (promtool)
+        run: |
+          v=3.5.0
+          curl -sSLf -o prom.tgz "https://github.com/prometheus/prometheus/releases/download/v${v}/prometheus-${v}.linux-amd64.tar.gz"
+          echo "e811827af26d822afb09a4f28314f61b618b12cff5369835a67f674d8b46f39a  prom.tgz" | sha256sum -c -
+          tar xzf prom.tgz "prometheus-${v}.linux-amd64/promtool"
+          "./prometheus-${v}.linux-amd64/promtool" check rules deploy/prometheus/rules/*.yml
+          "./prometheus-${v}.linux-amd64/promtool" check config --syntax-only deploy/prometheus.yml
+
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: mypy (app/)
+        env:
+          DATABASE_URL: postgresql+psycopg://dummy:dummy@localhost:5432/dummy
+          JWT_SECRET: "ci-dummy-jwt-secret-at-least-32-bytes-long"
+        run: mypy
 
   audit:
     runs-on: ubuntu-latest
@@ -142,13 +179,35 @@ jobs:
       - name: Install pip-audit
         run: pip install "$(grep '^pip-audit==' requirements-dev.txt)"
 
-      - name: Audit runtime dependencies for known vulnerabilities
-        run: pip-audit -r requirements.txt
+      - name: Audit runtime and dev dependencies for known vulnerabilities
+        run: pip-audit -r requirements-dev.txt
+
+  secrets:
+    # Full history, default gitleaks rules + .gitleaks.toml placeholder allowlist.
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository (full history)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: gitleaks
+        run: |
+          v=8.30.0
+          curl -sSLf -o gitleaks.tgz "https://github.com/gitleaks/gitleaks/releases/download/v${v}/gitleaks_${v}_linux_x64.tar.gz"
+          echo "79a3ab579b53f71efd634f3aaf7e04a0fa0cf206b7ed434638d1547a2470a66e  gitleaks.tgz" | sha256sum -c -
+          tar xzf gitleaks.tgz gitleaks
+          ./gitleaks git --redact --no-banner --config .gitleaks.toml --exit-code 1 .
+          ./gitleaks dir --redact --no-banner --config .gitleaks.toml --exit-code 1 .
 
   deploy:
-    needs: test
+    # Every check must pass first; nothing here is optional.
+    needs: [test, integration, prod-contract, lint, typecheck, audit, secrets]
     runs-on: self-hosted
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
     env:
       # theeyebeta-dataapi is a --user unit, so every systemctl/journalctl call in
       # this job needs --user + a reachable user D-Bus session. The self-hosted
@@ -189,4 +248,14 @@ jobs:
       - name: Deploy to production
         env:
           DEPLOY_REPO_DIR: ${{ steps.deploy-repo.outputs.repo_dir }}
+          # The exact commit the jobs above tested; deploy.sh refuses it unless it is on origin/main.
+          DEPLOY_SHA: ${{ github.sha }}
         run: bash scripts/deploy.sh
+
+      - name: Admin E2E smoke (no secrets)
+        # deploy.sh already required /health database=true (and rolled back if not).
+        # A failure here leaves the deploy in place and fails the run for an operator.
+        env:
+          DEPLOY_REPO_DIR: ${{ steps.deploy-repo.outputs.repo_dir }}
+        run: '"$DEPLOY_REPO_DIR/.venv/bin/python" "$DEPLOY_REPO_DIR/scripts/e2e_admin_smoke.py" http://127.0.0.1:7000'
+
