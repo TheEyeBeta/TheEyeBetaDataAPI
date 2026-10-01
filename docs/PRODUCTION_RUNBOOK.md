@@ -143,18 +143,17 @@ journalctl --user -u theeyebeta-dataapi -f
 
 ## 4) Cloudflare Tunnel
 
-Canonical ingress: [`deploy/cloudflared-config.yml`](../deploy/cloudflared-config.yml),
-installed by `sudo bash scripts/fix_tunnel.sh` and pushed as remote ingress by
-`scripts/sync_tunnel.sh` (also run by `start_all_native.sh` and, when the tunnel
-looks unhealthy, `watchdog_all.sh`). Full guide: [`TUNNEL_RUNBOOK.md`](TUNNEL_RUNBOOK.md).
+Ingress config: [`deploy/cloudflared-config.yml`](../deploy/cloudflared-config.yml).
+The tunnel is shared with TheEyeBetaProd (admin hostname) and TheEyeBetaLocal
+(`api.*`); the routing table and owners are in [`OWNERSHIP.md`](OWNERSHIP.md).
 
-> **Open discrepancy — resolve before running `fix_tunnel.sh`/`sync_tunnel.sh`.**
-> `AGENTS.md`, `README.md` and `TUNNEL_RUNBOOK.md` say `admin.theeyebeta.store`
-> routes to the hosted terminal on `127.0.0.1:8080` and must not be repointed to
-> `7200`, but the committed config (and `fix_tunnel.sh`'s summary) still route it
-> to admin-service on `127.0.0.1:7200`. Whichever script runs next will push the
-> committed value. Confirm what the live tunnel serves, then make the file match.
-> Tracked in [`TECH_DEBT.md`](TECH_DEBT.md).
+Tunnel changes are operator actions only. `scripts/fix_tunnel.sh` (installs
+`/etc/cloudflared/config.yml`) and `scripts/sync_tunnel.sh` (replaces the
+Cloudflare remote ingress) print their plan and exit 2 unless
+`TUNNEL_CHANGE_APPROVED=yes` is set. `start_all_native.sh` and
+`watchdog_all.sh` never touch the tunnel; the watchdog only logs an ALERT when
+the public health probe fails. Resolve DEBT-01 (`admin.theeyebeta.store`
+origin) before approving any change. Full guide: [`TUNNEL_RUNBOOK.md`](TUNNEL_RUNBOOK.md).
 
 ## 5) Verification checklist
 

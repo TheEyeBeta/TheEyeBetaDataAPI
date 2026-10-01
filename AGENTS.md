@@ -67,11 +67,22 @@ packages/   TypeScript client for the API
 
 ## Hosted terminal ingress
 
-`admin.theeyebeta.store` is the public entrypoint for The Eye hosted terminal,
-not a direct public admin-service origin. The canonical tunnel config routes it
-to loopback port `8080`; the Node terminal host proxies authenticated admin
-operations through DataAPI's allowlisted gateway. Do not repoint this hostname
-to port `7200` without an explicit rollback decision.
+Canonical routing table and ownership: `docs/OWNERSHIP.md`. Facts that are
+easy to get wrong:
+
+- `admin.theeyebeta.store` → `127.0.0.1:7200` (Prod admin-service) is what
+  TheEyeBetaProd declares (its contract C7) and what
+  `deploy/cloudflared-config.yml` mirrors. Earlier docs here claimed `:8080`;
+  no repository proves which is live. This is **open decision DEBT-01**
+  (operator + Prod) — do not repoint it in either direction from this repo, and
+  do not claim the live value without host evidence.
+- The terminal's API traffic goes to `dataapiprod.theeyebeta.store/admin/*`
+  (DataAPI's allowlisted gateway → loopback `:7200`), not to `admin.*`.
+- The tunnel `my-api` is shared (DataAPI, Prod admin, Local). Watchdog/start
+  scripts never change it; `sync_tunnel.sh` / `fix_tunnel.sh` refuse to run
+  without `TUNNEL_CHANGE_APPROVED=yes` (operator decision, see
+  `docs/TUNNEL_RUNBOOK.md`). `tests/test_tunnel_routing.py` enforces this.
+- TheEyeBetaLocal is only started/restarted when `THEEYE_LOCAL_REPO` is set.
 
 ## Runtime secrets (`.env`)
 

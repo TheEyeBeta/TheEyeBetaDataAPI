@@ -1,5 +1,20 @@
-# Canonical Cloudflare Tunnel ingress for TheEyeBeta2025 (native, no Docker).
-# Install to /etc/cloudflared/config.yml via: sudo bash scripts/fix_tunnel.sh
+# Cloudflare Tunnel ingress for the shared `my-api` tunnel (native, no Docker).
+#
+# OWNERSHIP (docs/OWNERSHIP.md): the tunnel is shared infrastructure owned by
+# the operator. This file is authoritative ONLY for the TheEyeBetaDataAPI
+# hostnames (dataapiprod / dataapi -> 127.0.0.1:7000). The other entries mirror
+# what their owners declare and must match them:
+#   admin.theeyebeta.store -> TheEyeBetaProd (infra/cloudflared/apply-p-net-01.sh,
+#                             docs/architecture/ownership-and-contracts.md C7)
+#   api.theeyebeta.store   -> TheEyeBetaLocal
+# OPEN DECISION DEBT-01 (docs/TECH_DEBT.md): Prod declares admin -> :7200
+# (admin-service API + terminal bundle, publicly reachable), while Prod ADR 0017
+# and TheEyeBetaAdminFrontend intend DataAPI's /admin/* gateway to be the single
+# remote admin origin. Live routing is host-verify only.
+#
+# Applying this file replaces the WHOLE tunnel ingress. Operator action only:
+#   sudo TUNNEL_CHANGE_APPROVED=yes bash scripts/fix_tunnel.sh   (or sync_tunnel.sh)
+# tests/test_tunnel_routing.py keeps this file, the docs and the scripts aligned.
 tunnel: 2e9c4dad-0800-4ae1-a9a7-3fb6e169d8b7
 credentials-file: /home/the-eye-beta/.cloudflared/2e9c4dad-0800-4ae1-a9a7-3fb6e169d8b7.json
 

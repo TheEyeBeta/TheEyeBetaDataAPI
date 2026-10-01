@@ -191,14 +191,14 @@ opens grouped minor/patch updates weekly.
 | Ops dashboard sign-in | [`docs/OPS_DASHBOARD_LOGIN.md`](docs/OPS_DASHBOARD_LOGIN.md) |
 | Firewall, alerts, backups | [`docs/OPS_HARDENING.md`](docs/OPS_HARDENING.md) |
 
-Public hostnames (canonical config [`deploy/cloudflared-config.yml`](deploy/cloudflared-config.yml)):
+Public hostnames (config [`deploy/cloudflared-config.yml`](deploy/cloudflared-config.yml); full routing and ownership table in [`docs/OWNERSHIP.md`](docs/OWNERSHIP.md); tunnel changes need explicit operator approval — [`docs/TUNNEL_RUNBOOK.md`](docs/TUNNEL_RUNBOOK.md)):
 
 | Hostname | Origin | Service |
 |---|---|---|
 | `dataapiprod.theeyebeta.store` | `127.0.0.1:7000` | This API (canonical) |
 | `dataapi.theeyebeta.store` | `127.0.0.1:7000` | This API (legacy alias) |
 | `api.theeyebeta.store` | `127.0.0.1:8000` | TheEyeBetaLocal main API |
-| `admin.theeyebeta.store` | `127.0.0.1:8080` per `AGENTS.md` ⚠ | The Eye hosted terminal — the committed tunnel config still says `7200`; see [`docs/TECH_DEBT.md`](docs/TECH_DEBT.md) before running tunnel scripts |
+| `admin.theeyebeta.store` | `127.0.0.1:7200` | TheEyeBetaProd admin-service (terminal page + its API) — declared by Prod; **open decision DEBT-01**, see [`docs/OWNERSHIP.md`](docs/OWNERSHIP.md) |
 
 ## Repository layout
 
