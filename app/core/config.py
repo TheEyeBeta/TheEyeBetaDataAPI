@@ -51,10 +51,10 @@ class Settings(BaseSettings):
 
     service_token_expires_minutes: int = 60
     delegated_token_expires_minutes: int = 5
-    # When false (default), iss/aud may be absent on inbound JWTs (grace period).
-    # When true, every decode path requires and validates iss + aud.
-    # Flip to true only after docs/IAM_CONSUMER_INVENTORY.md open questions are closed.
-    jwt_require_iss_aud: bool = False
+    # When true (default), every decode path requires and validates iss + aud.
+    # false is only a rollback switch: all known consumers send DataAPI-minted
+    # tokens, which carry iss/aud (docs/IAM_CONSUMER_INVENTORY.md section 2).
+    jwt_require_iss_aud: bool = True
     # Phase 3: opted-in clients get this access-token TTL + a refresh token.
     short_lived_access_token_minutes: int = 15
     refresh_token_expires_days: int = 30

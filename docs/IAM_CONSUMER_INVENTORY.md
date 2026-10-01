@@ -155,7 +155,11 @@ DataAPI **forwards** `Authorization`, cookies, CSRF, confirm, dry-run, idempoten
 ## 7. Open questions — status
 
 1. **Live clients:** **CLOSED** — see tables above; product gates are Lens + Admin Frontend only.
-2. **User JWT / iss+aud:** **CLOSED** — no inbound user-JWT product callers; service tokens already carry `iss`/`aud`/`iat`/`exp`. `JWT_REQUIRE_ISS_AUD=true` recommended when ready.
+2. **User JWT / iss+aud:** **CLOSED** — no inbound user-JWT product callers; service tokens already carry `iss`/`aud`/`iat`/`exp` (since 2026-03). Code default is now `JWT_REQUIRE_ISS_AUD=true` (2026-10-01 baseline). Verified in consumer code that every DataAPI caller obtains its token from `/api/v1/auth/service-token` and sends it back unchanged:
+   - Lens `backend/websearch_service/app/services/dataapi_client.py` and `app/routes/admin.py` (`DATAAPI_ADMIN_CLIENT_ID`, falls back to the main client);
+   - Prod `services/admin_service/api/dataapi.py` (`ADMIN_DATAAPI_CLIENT_ID`); admin-service's own RS256 JWTs never authenticate to DataAPI;
+   - TheEyeBetaLocal `packages/core/src/core/dataapi_client.py` (`DATAAPI_CLIENT_ID`, `trade-engine` app type).
+   Host-verify: the production `.env` may still pin `JWT_REQUIRE_ISS_AUD=false`; removing that line is the deploy-time step, followed by the Lens + Admin smoke.
 3. **Lens `lens:delegate`:** **CLOSED — unused** in prod IAM.
 4. **User API keys:** **CLOSED** — zero rows.
 5. **Trade write scopes:** **CLOSED** — scopes exist without routes; not a Lens/Admin blocker.
@@ -172,7 +176,8 @@ Host `ENVIRONMENT=production` → `TheEyeBeta2025Live`. Sibling DB `TheEyeBetaDa
 - **Release gate for auth changes:** smoke **Lens** (`ai-advisor-production`) and **Admin bridge** (`theeyebeta-prod-admin` / gateway 401-without-cookie + healthy admin-service), not `vi-app`.
 - Keep both product clients on `short_lived_tokens_enabled=false` until those apps explicitly support refresh.
 - `/admin/*` gateway contract remains untouched.
-- Do not flip `JWT_REQUIRE_ISS_AUD` without a post-flip Lens + Admin smoke.
+- After enabling `JWT_REQUIRE_ISS_AUD` on the host, run the Lens + Admin smoke; set it to `false` only as a rollback.
+- Refresh (if ever enabled) requires the client's HTTP Basic credentials and revokes the whole token family on reuse.
 
 ---
 

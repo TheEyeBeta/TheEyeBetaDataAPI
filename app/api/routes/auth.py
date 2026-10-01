@@ -53,10 +53,25 @@ def issue_service_token(
 @router.post("/refresh", response_model=RefreshTokenResponse, response_model_exclude_none=True)
 def refresh_access_token(
     request_body: RefreshTokenRequest,
+    request: Request,
+    credentials: HTTPBasicCredentials | None = Depends(security),
     session: Session = Depends(get_session),
 ) -> RefreshTokenResponse:
-    """Exchange a non-revoked refresh token for a new access + rotated refresh token."""
-    return AuthTokenService(session).refresh(request_body.refresh_token)
+    """Exchange a non-revoked refresh token for a new access + rotated refresh token.
+
+    The client that the token was issued to must authenticate (HTTP Basic), so a
+    leaked refresh token alone is not enough to mint access tokens.
+    """
+    if credentials is None:
+        raise AuthenticationError("Missing service credentials")
+    client = get_service_client(credentials.username, session=session)
+    verify_service_client_secret(
+        client,
+        credentials.password,
+        session=session,
+        client_ip=get_client_ip(request),
+    )
+    return AuthTokenService(session).refresh(request_body.refresh_token, client)
 
 
 @router.post("/delegated-token", response_model=DelegatedTokenResponse, response_model_exclude_none=True)

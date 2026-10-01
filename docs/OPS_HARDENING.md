@@ -70,10 +70,11 @@ Therefore:
 3. After load: `curl -X POST http://127.0.0.1:9090/-/reload` and check
    `http://127.0.0.1:9090/alerts`.
 
-Until a dedicated refresh-reuse counter exists, also grep journald:
+Until a dedicated refresh-reuse counter exists, also grep journald. A replayed
+(already rotated) token is logged as a warning and its whole family revoked:
 
 ```bash
-journalctl --user -u theeyebeta-dataapi --since "1 hour ago" | grep -F "Refresh token already used or revoked"
+journalctl --user -u theeyebeta-dataapi --since "1 hour ago" | grep -F "refresh token reuse detected"
 ```
 
 

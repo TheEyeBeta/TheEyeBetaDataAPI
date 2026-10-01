@@ -63,7 +63,7 @@ Authorization: Bearer <token>
 
 - Decodes always use an explicit algorithm allowlist (no `alg` from the token header).
 - `exp` and `iat` are required on every token.
-- `iss` and `aud` are required when `JWT_REQUIRE_ISS_AUD=true` (default `false` during the grace period documented in `docs/IAM_CONSUMER_INVENTORY.md`).
+- `iss` and `aud` are required and validated (`JWT_REQUIRE_ISS_AUD`, default `true`; `false` is a rollback switch only — see `docs/IAM_CONSUMER_INVENTORY.md`).
 - Service and delegated tokens issued by this API always include `iss`/`aud`/`iat`/`exp`.
 - Auth request bodies (`/api/v1/auth/*`, admin account create/delete) reject unknown fields (`extra=forbid`).
 - When `ENVIRONMENT=production`, `/docs`, `/redoc`, and `/openapi.json` are disabled.
@@ -208,9 +208,18 @@ curl -s -X POST "https://dataapiprod.theeyebeta.store/api/v1/auth/service-token"
 ### `POST /api/v1/auth/refresh`
 
 Exchange a valid refresh token for a new access token and a **rotated** refresh
-token (rotate-on-use). Replaying a previously used refresh token returns `401`.
+token (rotate-on-use). Only for clients with `short_lived_tokens_enabled`; no
+production client (Lens, admin-service) uses refresh today.
 
-**Authentication:** none (the refresh token is the credential).
+- The token is bound to the client it was issued to. Presenting it with another
+  client's credentials returns `401` and revokes the token's family.
+- Replaying a token that was already rotated returns `401` **and revokes every
+  token rotated from it**, including the newest one. Two parallel refreshes of
+  the same token count as a replay: serialise refreshes per token.
+- Expired or explicitly revoked tokens return `401`.
+
+**Authentication:** HTTP Basic (`client_id:client_secret`) of the client the
+refresh token was issued to.
 
 **Request body**
 
@@ -227,6 +236,7 @@ a new `refresh_token`).
 
 ```bash
 curl -s -X POST "https://dataapiprod.theeyebeta.store/api/v1/auth/refresh" \
+  -u "my-client-id:my-client-secret" \
   -H "Content-Type: application/json" \
   -d '{"refresh_token":"<opaque>"}'
 ```

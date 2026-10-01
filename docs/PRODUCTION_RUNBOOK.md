@@ -236,8 +236,9 @@ bash scripts/verify_remote_access.sh
 
 ## 7) Optional production hardening toggles
 
-- Require `iss`/`aud` on every JWT decode (after inventory confirms no legacy tokens):
-  - `JWT_REQUIRE_ISS_AUD=true`
+- `iss`/`aud` are required on every JWT decode by default
+  (`JWT_REQUIRE_ISS_AUD=true`). Only set `false` as a rollback; check the host
+  `.env` does not still pin `false`.
 - OIDC/JWKS user JWT validation:
   - `USER_JWT_JWKS_URL`, `USER_JWT_ISSUER`, `USER_JWT_AUDIENCE`, `USER_JWT_ALGORITHMS`
 - Redis rate limiting backend:

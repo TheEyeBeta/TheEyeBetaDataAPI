@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.orm import Session
 
-from app.auth.service_clients import ServiceClient, get_service_client
+from app.auth.service_clients import ServiceClient
 from app.auth.tokens import create_service_access_token
 from app.core.config import settings
 from app.domain.errors import AuthenticationError
@@ -72,19 +72,22 @@ class AuthTokenService:
             refresh_expires_at=refresh_expires,
         )
 
-    def refresh(self, presented_refresh_token: str) -> RefreshTokenResponse:
+    def refresh(self, presented_refresh_token: str, client: ServiceClient) -> RefreshTokenResponse:
+        """Rotate a refresh token for the already-authenticated ``client``.
+
+        The token is bound to the client (and its service subject) it was
+        issued to. Presenting it as another client means it leaked: the family
+        is revoked and the caller gets the same 401 as for an unknown token.
+        """
         if self._session is None:
             raise AuthenticationError("Refresh tokens require database-backed auth")
 
         repo = RefreshTokenRepository(self._session)
         presented = repo.lookup_active(presented_refresh_token)
 
-        # Revalidate live client authorization before extending the refresh family.
-        try:
-            client = get_service_client(presented.client_id, session=self._session)
-        except AuthenticationError:
-            repo.revoke_active_for_client(presented.client_id)
-            raise AuthenticationError("Service client is no longer authorized") from None
+        if presented.client_id != client.client_id or presented.subject != f"service:{client.client_id}":
+            repo.revoke_family(presented.id)
+            raise AuthenticationError("Invalid refresh token")
 
         if not client.short_lived_tokens_enabled:
             repo.revoke_active_for_client(presented.client_id)

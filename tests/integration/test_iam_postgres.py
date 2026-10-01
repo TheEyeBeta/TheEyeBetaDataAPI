@@ -200,9 +200,119 @@ def test_refresh_token_rotation_rejects_reuse(app_session: Session) -> None:
     with pytest.raises(AuthenticationError, match="already used or revoked"):
         repo.rotate(presented_raw_token=first, new_raw_token=mint_refresh_token_value(), new_expires_at=expires)
 
-    repo.revoke_active_for_client(client_id)
-    with pytest.raises(AuthenticationError):
+    # The replay above revoked the family, including the live descendant.
+    with pytest.raises(AuthenticationError, match="already used or revoked"):
         repo.lookup_active(second)
+
+
+def _refresh_chain(repo: RefreshTokenRepository, client_id: str, length: int) -> list[str]:
+    expires = datetime.now(UTC) + timedelta(days=1)
+    tokens = [mint_refresh_token_value()]
+    repo.insert(subject=f"service:{client_id}", client_id=client_id, raw_token=tokens[0], scopes=["market:read"], expires_at=expires)
+    for _ in range(length - 1):
+        tokens.append(mint_refresh_token_value())
+        repo.rotate(presented_raw_token=tokens[-2], new_raw_token=tokens[-1], new_expires_at=expires)
+    return tokens
+
+
+def _active_count(owner_engine: Engine, client_id: str) -> int:
+    row = _owner_row(
+        owner_engine,
+        "SELECT count(*) AS n FROM iam.refresh_tokens WHERE client_id = :c AND revoked_at IS NULL",
+        c=client_id,
+    )
+    assert row is not None
+    return int(row["n"])
+
+
+def test_refresh_reuse_revokes_only_its_own_family(owner_engine: Engine, app_session: Session) -> None:
+    repo = RefreshTokenRepository(app_session)
+    client_id = _unique("it-family")
+    stolen_family = _refresh_chain(repo, client_id, 4)
+    other_family = _refresh_chain(repo, client_id, 2)
+    assert _active_count(owner_engine, client_id) == 2
+
+    with pytest.raises(AuthenticationError, match="already used or revoked"):
+        repo.lookup_active(stolen_family[1])  # replay a middle token
+
+    with pytest.raises(AuthenticationError):
+        repo.lookup_active(stolen_family[-1])
+    assert repo.lookup_active(other_family[-1]).client_id == client_id
+    assert _active_count(owner_engine, client_id) == 1
+
+
+def test_explicit_revocation_is_not_treated_as_reuse(owner_engine: Engine, app_session: Session) -> None:
+    repo = RefreshTokenRepository(app_session)
+    client_id = _unique("it-revoked")
+    (token,) = _refresh_chain(repo, client_id, 1)
+    (other,) = _refresh_chain(repo, client_id, 1)
+    _owner_row(
+        owner_engine,
+        "UPDATE iam.refresh_tokens SET revoked_at = now() WHERE token_hash = encode(sha256(convert_to(:t, 'UTF8')), 'hex') "
+        "RETURNING id",
+        t=token,
+    )
+    with pytest.raises(AuthenticationError, match="already used or revoked"):
+        repo.lookup_active(token)
+    assert repo.lookup_active(other)
+
+
+def test_expired_refresh_token_rejected(app_session: Session) -> None:
+    repo = RefreshTokenRepository(app_session)
+    client_id = _unique("it-expired")
+    raw = mint_refresh_token_value()
+    past = datetime.now(UTC) - timedelta(seconds=1)
+    repo.insert(subject=f"service:{client_id}", client_id=client_id, raw_token=raw, scopes=["market:read"], expires_at=past)
+    with pytest.raises(AuthenticationError, match="expired"):
+        repo.lookup_active(raw)
+    with pytest.raises(AuthenticationError, match="expired"):
+        repo.rotate(presented_raw_token=raw, new_raw_token=mint_refresh_token_value(), new_expires_at=past)
+
+
+def test_concurrent_rotation_of_one_token_leaves_no_live_family(
+    owner_engine: Engine, app_sessionmaker: sessionmaker[Session]
+) -> None:
+    """Two parallel refreshes of the same token: one wins, the other is reuse.
+
+    The loser blocks on SELECT ... FOR UPDATE, then sees the winner's
+    revocation and revokes the family, including the token just issued to the
+    winner. Strict by design (RFC 9700): a client must serialise its refreshes.
+    """
+    import threading
+
+    client_id = _unique("it-race")
+    setup = app_sessionmaker()
+    try:
+        (token,) = _refresh_chain(RefreshTokenRepository(setup), client_id, 1)
+    finally:
+        setup.close()
+
+    barrier = threading.Barrier(2)
+    outcomes: list[str] = []
+
+    def attempt() -> None:
+        session = app_sessionmaker()
+        try:
+            barrier.wait(timeout=10)
+            RefreshTokenRepository(session).rotate(
+                presented_raw_token=token,
+                new_raw_token=mint_refresh_token_value(),
+                new_expires_at=datetime.now(UTC) + timedelta(days=1),
+            )
+            outcomes.append("rotated")
+        except AuthenticationError:
+            outcomes.append("rejected")
+        finally:
+            session.close()
+
+    threads = [threading.Thread(target=attempt) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=30)
+
+    assert sorted(outcomes) == ["rejected", "rotated"]
+    assert _active_count(owner_engine, client_id) == 0
 
 
 # ---------------------------------------------------------------------------

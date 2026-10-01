@@ -135,10 +135,11 @@ covered by that reset automatically; no extra wiring needed.
 ## IAM hardening (in progress)
 
 - Phase 0 inventory: `docs/IAM_CONSUMER_INVENTORY.md`
-- Phase 1: JWT algorithm allowlists, `exp`/`iat` required, `JWT_REQUIRE_ISS_AUD`
-  grace flag (default false), auth request `extra=forbid`, OpenAPI disabled in
-  production. Do not flip `JWT_REQUIRE_ISS_AUD=true` until inventory open
-  questions are closed.
+- Phase 1: JWT algorithm allowlists, `exp`/`iat` required, auth request
+  `extra=forbid`, OpenAPI disabled in production. `JWT_REQUIRE_ISS_AUD`
+  defaults to **true** (every consumer uses DataAPI-minted tokens, which carry
+  `iss`/`aud`); `false` is a rollback switch only. The host `.env` may still
+  pin `false` — host-verify before claiming enforcement is live.
 - Phase 2: zero-downtime signing rotation via
   `JWT_SIGNING_SECRET_CURRENT`/`PREVIOUS` and `USER_JWT_SECRET_PREVIOUS`.
   Follow `docs/SECRET_ROTATION_RUNBOOK.md`; never clear `PREVIOUS` before one
