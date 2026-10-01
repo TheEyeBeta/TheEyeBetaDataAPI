@@ -31,7 +31,7 @@ else
   fuser -k 7000/tcp 2>/dev/null || true
   sleep 1
   cd "$REPO_DIR"
-  DEPLOY_SKIP_GIT_SYNC=1 DEPLOY_SKIP_PIP_INSTALL=1 bash scripts/deploy.sh
+  DEPLOY_SKIP_GIT_SYNC=1 DEPLOY_SKIP_PIP_INSTALL=1 DEPLOY_ALLOW_TMUX_FALLBACK=1 bash scripts/deploy.sh
 fi
 
 if [[ -n "$LOCAL_DIR" && -f "$LOCAL_DIR/scripts/start_all_native.sh" ]]; then
