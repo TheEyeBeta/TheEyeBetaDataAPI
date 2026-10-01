@@ -146,3 +146,37 @@ def test_401_includes_request_id_header_when_not_provided() -> None:
     resp = client.get("/api/v1/context")
     header_keys = {k.lower() for k in resp.headers}
     assert "x-request-id" in header_keys
+
+
+def test_422_does_not_echo_submitted_values() -> None:
+    """A malformed body must not be reflected back (it may hold a secret)."""
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    secret_like = "refresh-SECRET-VALUE-0123456789"
+    resp = TestClient(app).post(
+        "/api/v1/auth/refresh", json={"refresh_token": secret_like, "unexpected": secret_like}
+    )
+    assert resp.status_code == 422
+    message = resp.json()["error"]["message"]
+    assert "extra_forbidden" in message
+    assert secret_like not in message
+    assert "'input'" not in message and "'ctx'" not in message and "'url'" not in message
+
+
+def test_named_query_db_failure_does_not_return_driver_text() -> None:
+    from sqlalchemy.exc import ProgrammingError
+
+    from app.domain.errors import DatabaseUnavailableError
+    from app.repositories.sql_market_data import SQLMarketDataRepository
+
+    class _Session:
+        def execute(self, *args, **kwargs):  # noqa: ANN002, ANN003, ANN202
+            raise ProgrammingError("SELECT secret_column FROM theeyebeta.x", {"limit": 5}, Exception("boom"))
+
+    repo = SQLMarketDataRepository(_Session())  # type: ignore[arg-type]
+    with pytest.raises(DatabaseUnavailableError) as raised:
+        repo.execute_named_query("orders", limit=5)
+    assert "SELECT" not in raised.value.message
+    assert "secret_column" not in raised.value.message

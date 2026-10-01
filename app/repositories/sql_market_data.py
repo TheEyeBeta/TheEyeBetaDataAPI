@@ -569,7 +569,8 @@ class SQLMarketDataRepository(MarketDataRepository):
             ]
         except SQLAlchemyError as exc:
             logger.exception("execute_named_query failed query_name=%s", query_name)
-            raise DatabaseUnavailableError(f"Query failed: {exc}") from exc
+            # Driver text carries SQL and parameters: log it, never return it.
+            raise DatabaseUnavailableError(f"Named query {query_name!r} failed") from exc
 
     def get_database_version(self) -> str:
         try:
