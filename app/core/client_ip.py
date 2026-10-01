@@ -36,6 +36,27 @@ def _forwarded_ip(request: Request) -> str | None:
     return _parse_ip(first)
 
 
+# Any of these means the request came through Cloudflare or another proxy,
+# even if the TCP peer is loopback (cloudflared connects from 127.0.0.1).
+_PROXY_HEADERS = ("cf-connecting-ip", "cf-ray", "x-forwarded-for", "x-real-ip", "forwarded")
+
+
+def is_direct_from(request: Request, networks: str) -> bool:
+    """True when the TCP peer is in ``networks`` and no proxy header is present."""
+    if any(header in request.headers for header in _PROXY_HEADERS):
+        return False
+    peer = request.client.host if request.client else None
+    try:
+        address = ipaddress.ip_address(peer or "")
+    except ValueError:
+        return False
+    for network in networks.split(","):
+        network = network.strip()
+        if network and address in ipaddress.ip_network(network, strict=False):
+            return True
+    return False
+
+
 def get_client_ip(request: Request) -> str:
     """Return effective client IP based on trust_proxy_headers policy."""
     if settings.trust_proxy_headers:

@@ -2,7 +2,7 @@
 
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
 from starlette.middleware.trustedhost import TrustedHostMiddleware
@@ -29,6 +29,7 @@ from app.api.routes.signals import router as signals_router
 from app.api.routes.symbols import router as symbols_router
 from app.api.routes.tickers import router as tickers_router
 from app.api.routes.universe import router as universe_router
+from app.core.client_ip import is_direct_from
 from app.core.config import openapi_route_kwargs, settings
 from app.core.logging import setup_logging
 from app.core.rate_limit import RateLimitMiddleware
@@ -46,18 +47,28 @@ async def lifespan(_application: FastAPI):
     engine.dispose()
 
 
+_openapi_urls = openapi_route_kwargs(settings.environment)
 app = FastAPI(
     title=settings.app_name,
     version=settings.app_version,
     description="Internet-exposed AI Data API with allowlisted database access.",
     lifespan=lifespan,
-    **openapi_route_kwargs(settings.environment),
+    docs_url=_openapi_urls["docs_url"],
+    redoc_url=_openapi_urls["redoc_url"],
+    openapi_url=_openapi_urls["openapi_url"],
 )
+
+def _require_metrics_scraper(request: Request) -> None:
+    # /metrics lists every route and its traffic; only a local scraper may read
+    # it. Tunnel traffic also arrives from 127.0.0.1, hence the header check.
+    if not is_direct_from(request, settings.metrics_allowed_networks):
+        raise HTTPException(status_code=404, detail="Not Found")
+
 
 Instrumentator(
     excluded_handlers=["/metrics", "/health"],
     should_group_status_codes=False,
-).instrument(app).expose(app, include_in_schema=False)
+).instrument(app).expose(app, include_in_schema=False, dependencies=[Depends(_require_metrics_scraper)])
 
 app.add_middleware(RequestContextMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)

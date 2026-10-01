@@ -74,9 +74,6 @@ class Settings(BaseSettings):
 
     openai_api_key: str | None = None
     openai_model: str = "gpt-4o-mini"
-    # Phase 5: user API key lifetime policy (provisioning / backfill).
-    user_api_key_max_expires_days: int = 365
-    user_api_key_backfill_days: int = 180
 
     api_host: str = "127.0.0.1"
     api_port: int = 7000
@@ -84,6 +81,8 @@ class Settings(BaseSettings):
 
     trusted_hosts: str = "localhost,127.0.0.1"
     trust_proxy_headers: bool = False
+    # Networks whose direct, un-proxied requests may read /metrics.
+    metrics_allowed_networks: str = "127.0.0.0/8,::1/128"
     policy_enforcement_enabled: bool = False
     admin_gateway_enabled: bool = False
     admin_service_url: str = ""
@@ -336,4 +335,4 @@ def openapi_route_kwargs(environment: str) -> dict[str, str | None]:
     return {"docs_url": "/docs", "redoc_url": "/redoc", "openapi_url": "/openapi.json"}
 
 
-settings = Settings()
+settings = Settings()  # type: ignore[call-arg]  # required fields come from the environment
