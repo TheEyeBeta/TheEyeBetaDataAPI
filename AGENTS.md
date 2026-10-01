@@ -130,7 +130,9 @@ state (`app/core/subject_rate_limit.py`) keyed by `auth_subject`, which is
 fixed per test service-client (e.g. `service:admin-tool`) — `tests/conftest.py`
 has an autouse fixture (`_reset_rate_limit_buckets`) that clears them before
 every test. If you add a new rate limiter via `_make_rate_limiter`, it's
-covered by that reset automatically; no extra wiring needed.
+covered by that reset automatically; no extra wiring needed. The per-IP
+`RateLimitMiddleware` buckets (all TestClient calls share the `testclient` IP)
+are cleared by the same fixture via `reset_ip_rate_limits()`.
 
 ## IAM hardening (in progress)
 

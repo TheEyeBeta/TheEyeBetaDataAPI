@@ -35,6 +35,10 @@ class _FakeMappings:
     def first(self) -> dict | None:
         return self._row
 
+    def one(self) -> dict:
+        assert self._row is not None, "INSERT ... RETURNING yields one row"
+        return self._row
+
     def all(self) -> list[dict]:
         return list(self._rows)
 

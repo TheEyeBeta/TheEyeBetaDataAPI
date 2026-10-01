@@ -160,7 +160,7 @@ async def proxy_admin_request(path: str, request: Request) -> Response:
             upstream = await client.request(
                 request.method,
                 target,
-                params=request.query_params.multi_items(),
+                params=tuple(request.query_params.multi_items()),
                 content=body,
                 headers=_safe_headers(request),
             )

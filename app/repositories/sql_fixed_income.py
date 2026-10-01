@@ -284,7 +284,7 @@ class SQLFixedIncomeRepository:
         )
 
     @staticmethod
-    def _metric_from_row(row: Mapping[str, Any]) -> FixedIncomeCurveMetric:
+    def _metric_from_row(row: Mapping[Any, Any]) -> FixedIncomeCurveMetric:
         values: dict[str, Any] = {}
         for column in _METRIC_COLUMNS:
             raw = row.get(column)

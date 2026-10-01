@@ -35,6 +35,7 @@ os.environ.setdefault("JWT_REQUIRE_ISS_AUD", "true")
 
 import pytest  # noqa: E402
 
+from app.core.rate_limit import reset_ip_rate_limits  # noqa: E402
 from app.core.subject_rate_limit import reset_rate_limits  # noqa: E402
 
 
@@ -43,6 +44,8 @@ def _reset_rate_limit_buckets():
     """Rate-limit buckets are process-global and keyed by auth_subject, which is
     fixed per test service-client (e.g. "service:admin-tool") -- without this,
     tests that call the same rate-limited route back-to-back would collide.
+    The per-IP middleware buckets ("testclient") are cleared for the same reason.
     """
     reset_rate_limits()
+    reset_ip_rate_limits()
     yield

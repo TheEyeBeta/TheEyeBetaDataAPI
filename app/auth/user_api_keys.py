@@ -178,6 +178,8 @@ def verify_user_api_key(
             if failure_reason == "key_expired":
                 raise AuthenticationError("API key expired")
             raise AuthenticationError("Invalid API key")
+        if row is None:  # unreachable: a missing row set failure_reason above
+            raise AuthenticationError("Invalid API key")
 
         scopes = [str(scope).strip() for scope in (row["scopes"] or []) if str(scope).strip()]
 
