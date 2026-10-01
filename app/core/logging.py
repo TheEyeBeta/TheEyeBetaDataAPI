@@ -12,10 +12,7 @@ def setup_logging() -> None:
             "disable_existing_loggers": False,
             "formatters": {
                 "structured": {
-                    "format": (
-                        "%(asctime)s %(levelname)s [%(name)s] "
-                        "request_id=%(request_id)s %(message)s"
-                    ),
+                    "format": ("%(asctime)s %(levelname)s [%(name)s] request_id=%(request_id)s %(message)s"),
                     "defaults": {"request_id": "-"},
                 },
             },

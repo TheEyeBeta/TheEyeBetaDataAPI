@@ -58,6 +58,7 @@ app = FastAPI(
     openapi_url=_openapi_urls["openapi_url"],
 )
 
+
 def _require_metrics_scraper(request: Request) -> None:
     # /metrics lists every route and its traffic; only a local scraper may read
     # it. Tunnel traffic also arrives from 127.0.0.1, hence the header check.

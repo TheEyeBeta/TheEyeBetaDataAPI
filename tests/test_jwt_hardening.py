@@ -220,9 +220,11 @@ def test_iss_aud_enforced_by_default() -> None:
 
 
 def _quotes(token: str) -> int:
-    return TestClient(app).get(
-        "/api/v1/market-data/quotes?symbols=AAPL", headers={"Authorization": f"Bearer {token}"}
-    ).status_code
+    return (
+        TestClient(app)
+        .get("/api/v1/market-data/quotes?symbols=AAPL", headers={"Authorization": f"Bearer {token}"})
+        .status_code
+    )
 
 
 def _sign(payload: dict) -> str:

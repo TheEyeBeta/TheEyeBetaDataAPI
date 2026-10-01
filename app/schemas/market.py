@@ -125,6 +125,7 @@ class AdminAuditEventsResponse(BaseModel):
 
 # ── Reference ────────────────────────────────────────────────────────────────
 
+
 class CountryResponse(BaseModel):
     country_code: str
     country_name: str
@@ -189,6 +190,7 @@ class TradingCalendarResponse(BaseModel):
 
 
 # ── Ticker detail ─────────────────────────────────────────────────────────────
+
 
 class TickerIdentifierResponse(BaseModel):
     id_type: str
@@ -281,6 +283,7 @@ class CompanyFundamentalsResponse(BaseModel):
 
 # ── Financial statements ──────────────────────────────────────────────────────
 
+
 class IncomeStatementResponse(BaseModel):
     period_end: date | None = None
     fiscal_year: int | None = None
@@ -360,6 +363,7 @@ class QualityMetricsResponse(BaseModel):
 
 
 # ── Indicators ────────────────────────────────────────────────────────────────
+
 
 class TechnicalDayResponse(BaseModel):
     date: date
@@ -453,6 +457,7 @@ class ReturnsSnapshotResponse(BaseModel):
 
 # ── News ──────────────────────────────────────────────────────────────────────
 
+
 class TickerNewsItemResponse(BaseModel):
     news_id: int
     source: str | None = None
@@ -485,6 +490,7 @@ class MarketNewsResponse(BaseModel):
 
 
 # ── Admin-only ────────────────────────────────────────────────────────────────
+
 
 class EtlJobStateResponse(BaseModel):
     job_name: str
@@ -540,6 +546,7 @@ class WorkerHeartbeatsResponse(BaseModel):
 
 
 # ── Sector / universe ─────────────────────────────────────────────────────────
+
 
 class SectorDailyEntryResponse(BaseModel):
     sector: str

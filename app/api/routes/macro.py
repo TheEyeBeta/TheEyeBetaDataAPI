@@ -39,9 +39,7 @@ def list_series(
 
 @router.get("/latest", response_model=MacroLatestResponse)
 def latest(
-    codes: str | None = Query(
-        default=None, description="Comma-separated series codes, e.g. GDPC1,UNRATE,DGS10"
-    ),
+    codes: str | None = Query(default=None, description="Comma-separated series codes, e.g. GDPC1,UNRATE,DGS10"),
     _=Depends(require_scopes([SCOPE_MARKET_READ])),
     service: MacroService = Depends(get_macro_service),
 ) -> MacroLatestResponse:

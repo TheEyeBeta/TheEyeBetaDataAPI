@@ -60,11 +60,18 @@ def host(tmp_path: Path) -> dict:
     _git(work, "reset", "-q", "--hard", good)
 
     calls = tmp_path / "calls.log"
-    _stub(bin_dir, "systemctl", f'echo "systemctl $*" >> {calls}\n'
-          'if [[ "$*" == *LoadState* ]]; then echo "${STUB_LOADSTATE:-loaded}"; fi\n')
+    _stub(
+        bin_dir,
+        "systemctl",
+        f'echo "systemctl $*" >> {calls}\nif [[ "$*" == *LoadState* ]]; then echo "${{STUB_LOADSTATE:-loaded}}"; fi\n',
+    )
     # Healthy only when the checked-out marker says "good".
-    _stub(bin_dir, "curl", f'if [[ "$(cat {work}/marker)" == good ]]; then echo \'{{"status":"healthy","database":true}}\';'
-          ' else echo \'{"status":"healthy","database":false}\'; fi\n')
+    _stub(
+        bin_dir,
+        "curl",
+        f'if [[ "$(cat {work}/marker)" == good ]]; then echo \'{{"status":"healthy","database":true}}\';'
+        ' else echo \'{"status":"healthy","database":false}\'; fi\n',
+    )
     _stub(bin_dir, "tmux", f'echo "tmux $*" >> {calls}\n')
     _stub(bin_dir, "journalctl", "true\n")
     env = {

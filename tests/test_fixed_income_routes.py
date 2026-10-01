@@ -150,9 +150,7 @@ def test_fixed_income_regime_ok() -> None:
 
 
 def test_fixed_income_regime_not_found_when_empty() -> None:
-    app.dependency_overrides[get_fixed_income_service] = lambda: _FakeFixedIncomeService(
-        regime_exists=False
-    )
+    app.dependency_overrides[get_fixed_income_service] = lambda: _FakeFixedIncomeService(regime_exists=False)
     client = TestClient(app)
     token = _make_user_token(scopes=["market:read"])
     response = client.get(f"{PREFIX}/regime", headers={"Authorization": f"Bearer {token}"})
@@ -161,9 +159,7 @@ def test_fixed_income_regime_not_found_when_empty() -> None:
 
 
 def test_fixed_income_regime_omits_etf_proxies_when_prices_missing() -> None:
-    app.dependency_overrides[get_fixed_income_service] = lambda: _FakeFixedIncomeService(
-        include_proxies=False
-    )
+    app.dependency_overrides[get_fixed_income_service] = lambda: _FakeFixedIncomeService(include_proxies=False)
     client = TestClient(app)
     token = _make_user_token(scopes=["market:read"])
     response = client.get(f"{PREFIX}/regime", headers={"Authorization": f"Bearer {token}"})

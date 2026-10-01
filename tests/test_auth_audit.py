@@ -52,9 +52,7 @@ def test_least_privilege_helper_requires_explicit_scopes() -> None:
 
     session = MagicMock()
     try:
-        module._apply_least_privilege_scopes(
-            session, "00000000-0000-0000-0000-000000000001", [], "tester"
-        )
+        module._apply_least_privilege_scopes(session, "00000000-0000-0000-0000-000000000001", [], "tester")
         raise AssertionError("expected ValueError")
     except ValueError as exc:
         assert "least-privilege" in str(exc).lower()

@@ -115,9 +115,7 @@ def test_response_headers_are_filtered_and_cookies_preserved(upstream) -> None:
 
 def test_oversized_body_is_refused(upstream, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "admin_gateway_max_body_bytes", 8)
-    response = TestClient(app).post(
-        "/admin/orders", headers={"X-Idempotency-Key": "k"}, content=b"0123456789"
-    )
+    response = TestClient(app).post("/admin/orders", headers={"X-Idempotency-Key": "k"}, content=b"0123456789")
     assert response.status_code == 413
     assert upstream["calls"] == []
 
@@ -177,7 +175,12 @@ def test_encoded_query_and_fragment_characters_stay_in_the_path_segment(upstream
 
 @pytest.mark.parametrize(
     ("method", "path"),
-    [("PUT", "/admin/orders/1"), ("PATCH", "/admin/services/x"), ("DELETE", "/admin/workers/x"), ("GET", "/admin/events/stream")],
+    [
+        ("PUT", "/admin/orders/1"),
+        ("PATCH", "/admin/services/x"),
+        ("DELETE", "/admin/workers/x"),
+        ("GET", "/admin/events/stream"),
+    ],
 )
 def test_methods_and_families_prod_does_not_serve_are_refused(upstream, method: str, path: str) -> None:
     response = TestClient(app).request(method, path, headers={"X-Idempotency-Key": "k"})

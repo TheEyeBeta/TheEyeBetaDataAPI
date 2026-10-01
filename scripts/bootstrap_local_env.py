@@ -76,15 +76,17 @@ def _load_template_values(template_text: str) -> dict[str, str]:
 
 
 def _resolve_database_url(cli_value: str, template_values: dict[str, str]) -> str:
-    candidates = [cli_value.strip(), os.getenv("DATABASE_URL", "").strip(), template_values.get("DATABASE_URL", "").strip()]
+    candidates = [
+        cli_value.strip(),
+        os.getenv("DATABASE_URL", "").strip(),
+        template_values.get("DATABASE_URL", "").strip(),
+    ]
     for candidate in candidates:
         if candidate and "REPLACE_ME" not in candidate:
             return candidate
     if any("REPLACE_ME" in candidate for candidate in candidates if candidate):
         raise ValueError("DATABASE_URL still contains the REPLACE_ME placeholder; substitute the real password.")
-    raise ValueError(
-        "DATABASE_URL is required. Pass --database-url or export DATABASE_URL before running this script."
-    )
+    raise ValueError("DATABASE_URL is required. Pass --database-url or export DATABASE_URL before running this script.")
 
 
 def _resolve_service_clients(raw_value: str) -> tuple[str, list[str]]:
@@ -142,9 +144,7 @@ def main() -> int:
         if not args.force:
             print(f"Refusing to overwrite existing file: {output_path}. Use --force to replace it.", file=sys.stderr)
             return 1
-        backup = output_path.with_name(
-            f"{output_path.name}.bak.{dt.datetime.now(dt.UTC).strftime('%Y%m%d%H%M%S')}"
-        )
+        backup = output_path.with_name(f"{output_path.name}.bak.{dt.datetime.now(dt.UTC).strftime('%Y%m%d%H%M%S')}")
         backup.write_text(output_path.read_text(encoding="utf-8"), encoding="utf-8")
         backup.chmod(0o600)
         print(f"Backed up existing {output_path} to {backup} (mode 600)")

@@ -31,9 +31,7 @@ def _make_user_token(scopes: list[str]) -> str:
         "iat": int(now.timestamp()),
         "exp": int((now + timedelta(minutes=60)).timestamp()),
     }
-    return jwt.encode(
-        payload, settings.user_jwt_secret, algorithm=settings.user_jwt_algorithm
-    )
+    return jwt.encode(payload, settings.user_jwt_secret, algorithm=settings.user_jwt_algorithm)
 
 
 def _resolved_symbol(
@@ -133,10 +131,7 @@ def test_resolve_symbol_rejects_cross_exchange_ambiguity() -> None:
 
     assert response.status_code == 409
     assert response.json()["error"]["code"] == "CONFLICT"
-    assert (
-        response.json()["error"]["message"]
-        == "Symbol is ambiguous across exchanges: AAPL"
-    )
+    assert response.json()["error"]["message"] == "Symbol is ambiguous across exchanges: AAPL"
 
 
 def test_resolve_symbol_rejects_whitespace_only_symbol() -> None:

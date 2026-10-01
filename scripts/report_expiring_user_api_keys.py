@@ -27,9 +27,10 @@ def main() -> int:
 
     session = get_db_session()
     try:
-        rows = session.execute(
-            text(
-                """
+        rows = (
+            session.execute(
+                text(
+                    """
                 SELECT
                     k.key_uuid::text AS key_uuid,
                     k.key_prefix,
@@ -46,9 +47,12 @@ def main() -> int:
                   AND k.expires_at <= now() + make_interval(days => :within_days)
                 ORDER BY k.expires_at ASC
                 """
-            ),
-            {"within_days": args.within_days},
-        ).mappings().all()
+                ),
+                {"within_days": args.within_days},
+            )
+            .mappings()
+            .all()
+        )
         payload = [
             {
                 "key_uuid": r["key_uuid"],

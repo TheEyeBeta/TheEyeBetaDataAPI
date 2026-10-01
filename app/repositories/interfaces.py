@@ -218,9 +218,7 @@ class MarketDataRepository(Protocol):
     def get_sector_daily(self, sector: str | None = None, limit: int = 252) -> list[SectorDaily]:
         """Return sector_daily rows, optionally filtered to one sector."""
 
-    def get_universe_active(
-        self, min_market_cap: float = 500_000_000, limit: int = 200
-    ) -> list[UniverseCapEntry]:
+    def get_universe_active(self, min_market_cap: float = 500_000_000, limit: int = 200) -> list[UniverseCapEntry]:
         """Return the latest market_cap_daily row per symbol above the cap floor, ranked by market cap desc."""
 
     def get_cap_events(self, since: date | None = None, limit: int = 100) -> list[CapEvent]:

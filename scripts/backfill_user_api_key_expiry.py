@@ -43,17 +43,21 @@ def main() -> int:
 
     session = get_db_session()
     try:
-        candidates = session.execute(
-            text(
-                """
+        candidates = (
+            session.execute(
+                text(
+                    """
                 SELECT key_uuid::text AS key_uuid, user_uuid::text AS user_uuid
                 FROM iam.user_api_keys
                 WHERE is_active = true
                   AND revoked_at IS NULL
                   AND expires_at IS NULL
                 """
+                )
             )
-        ).mappings().all()
+            .mappings()
+            .all()
+        )
         print(json.dumps({"candidates": len(candidates), "days": args.days, "dry_run": args.dry_run}))
         if args.dry_run or not candidates:
             return 0

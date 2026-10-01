@@ -157,7 +157,9 @@ def test_expired_user_api_key_is_rejected(owner_engine: Engine, app_session: Ses
     issued = _provision_user_key(owner_engine, f"{_unique('it')}@example.com")
     with owner_engine.connect() as conn:
         conn.execute(
-            text("UPDATE iam.user_api_keys SET expires_at = now() - interval '1 second' WHERE key_uuid = CAST(:k AS uuid)"),
+            text(
+                "UPDATE iam.user_api_keys SET expires_at = now() - interval '1 second' WHERE key_uuid = CAST(:k AS uuid)"
+            ),
             {"k": issued["key_uuid"]},
         )
     with pytest.raises(AuthenticationError, match="API key expired"):
@@ -190,7 +192,9 @@ def test_refresh_token_rotation_rejects_reuse(app_session: Session) -> None:
     client_id = _unique("it-refresh")
     expires = datetime.now(UTC) + timedelta(days=1)
     first = mint_refresh_token_value()
-    repo.insert(subject=f"service:{client_id}", client_id=client_id, raw_token=first, scopes=["market:read"], expires_at=expires)
+    repo.insert(
+        subject=f"service:{client_id}", client_id=client_id, raw_token=first, scopes=["market:read"], expires_at=expires
+    )
 
     second = mint_refresh_token_value()
     rotated = repo.rotate(presented_raw_token=first, new_raw_token=second, new_expires_at=expires)
@@ -208,7 +212,13 @@ def test_refresh_token_rotation_rejects_reuse(app_session: Session) -> None:
 def _refresh_chain(repo: RefreshTokenRepository, client_id: str, length: int) -> list[str]:
     expires = datetime.now(UTC) + timedelta(days=1)
     tokens = [mint_refresh_token_value()]
-    repo.insert(subject=f"service:{client_id}", client_id=client_id, raw_token=tokens[0], scopes=["market:read"], expires_at=expires)
+    repo.insert(
+        subject=f"service:{client_id}",
+        client_id=client_id,
+        raw_token=tokens[0],
+        scopes=["market:read"],
+        expires_at=expires,
+    )
     for _ in range(length - 1):
         tokens.append(mint_refresh_token_value())
         repo.rotate(presented_raw_token=tokens[-2], new_raw_token=tokens[-1], new_expires_at=expires)
@@ -262,7 +272,9 @@ def test_expired_refresh_token_rejected(app_session: Session) -> None:
     client_id = _unique("it-expired")
     raw = mint_refresh_token_value()
     past = datetime.now(UTC) - timedelta(seconds=1)
-    repo.insert(subject=f"service:{client_id}", client_id=client_id, raw_token=raw, scopes=["market:read"], expires_at=past)
+    repo.insert(
+        subject=f"service:{client_id}", client_id=client_id, raw_token=raw, scopes=["market:read"], expires_at=past
+    )
     with pytest.raises(AuthenticationError, match="expired"):
         repo.lookup_active(raw)
     with pytest.raises(AuthenticationError, match="expired"):
@@ -326,7 +338,11 @@ def test_auth_audit_row_is_written_as_api_service(
     monkeypatch.setattr(audit, "get_db_session", app_sessionmaker)
     subject = _unique("service:it-audit")
     audit.record_auth_audit(
-        subject=subject, scope_required="admin:read", scope_granted="market:read", route="/api/v1/admin/x", outcome="forbidden"
+        subject=subject,
+        scope_required="admin:read",
+        scope_granted="market:read",
+        route="/api/v1/admin/x",
+        outcome="forbidden",
     )
     row = _owner_row(owner_engine, "SELECT outcome FROM iam.auth_audit_log WHERE subject = :s", s=subject)
     assert row == {"outcome": "forbidden"}

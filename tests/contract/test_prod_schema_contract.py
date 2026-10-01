@@ -132,7 +132,10 @@ BRIDGE_OK = [
     ("/api/v1/data/tables", None),
     ("/api/v1/data/tables/instruments/columns", None),
     ("/api/v1/data/tables/instruments/rows", {"limit": 5}),
-    ("/api/v1/data/tables/prices_daily/rows", {"symbol": "AAPL", "start": "2026-09-01", "end": "2026-09-30", "limit": 5}),
+    (
+        "/api/v1/data/tables/prices_daily/rows",
+        {"symbol": "AAPL", "start": "2026-09-01", "end": "2026-09-30", "limit": 5},
+    ),
     ("/api/v1/admin/dashboard-data", None),
     ("/api/v1/admin/engine-status", None),
     ("/api/v1/admin/worker-heartbeats", None),
@@ -149,7 +152,17 @@ def test_route_serves_prod_schema(client, bridge_token, path, params) -> None:
 
 @pytest.mark.parametrize(
     "query_name",
-    ["all_tickers", "latest_prices", "latest_signals", "orders", "portfolio", "command_log", "market_news", "heartbeats", "table_stats"],
+    [
+        "all_tickers",
+        "latest_prices",
+        "latest_signals",
+        "orders",
+        "portfolio",
+        "command_log",
+        "market_news",
+        "heartbeats",
+        "table_stats",
+    ],
 )
 def test_admin_named_queries_run_on_prod_schema(client, bridge_token, query_name) -> None:
     response = _get(client, bridge_token, "/api/v1/admin/named-query", {"query_name": query_name, "limit": 5})
@@ -212,7 +225,9 @@ def test_every_referenced_object_is_accounted_for() -> None:
     snapshot, host_only = _listed("objects.txt"), _listed("host_only_tables.txt")
     assert not snapshot & host_only, "a table cannot be both in the Prod snapshot and host-only"
     unaccounted = referenced - snapshot - host_only
-    assert not unaccounted, f"add to contracts/prod/objects.txt (if Prod creates it) or host_only_tables.txt: {sorted(unaccounted)}"
+    assert not unaccounted, (
+        f"add to contracts/prod/objects.txt (if Prod creates it) or host_only_tables.txt: {sorted(unaccounted)}"
+    )
 
 
 def test_host_only_tables_are_really_absent_from_prod_snapshot() -> None:
@@ -240,10 +255,16 @@ def test_generic_rows_ticker_id_symbol_clause_runs_on_prod_schema(contract_env) 
 
     session = get_db_session()
     try:
-        ids = session.execute(
-            text(f"SELECT v.ticker_id FROM (VALUES (101::bigint), (102::bigint)) AS v(ticker_id) WHERE {TICKER_ID_SYMBOL_CLAUSE}"),
-            {"symbol": "aapl"},
-        ).scalars().all()
+        ids = (
+            session.execute(
+                text(
+                    f"SELECT v.ticker_id FROM (VALUES (101::bigint), (102::bigint)) AS v(ticker_id) WHERE {TICKER_ID_SYMBOL_CLAUSE}"
+                ),
+                {"symbol": "aapl"},
+            )
+            .scalars()
+            .all()
+        )
     finally:
         session.close()
     assert ids == [101]

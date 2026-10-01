@@ -20,9 +20,7 @@ def _check_redis() -> bool | None:
     try:
         import redis as redis_lib
 
-        client = redis_lib.Redis.from_url(
-            settings.redis_url, socket_timeout=0.5, socket_connect_timeout=0.5
-        )
+        client = redis_lib.Redis.from_url(settings.redis_url, socket_timeout=0.5, socket_connect_timeout=0.5)
         return client.ping() is True
     except Exception:
         logger.warning("redis health check failed", exc_info=True)

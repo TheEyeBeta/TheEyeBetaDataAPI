@@ -16,9 +16,7 @@ text = sys.stdin.read()
 statements = re.split(r"(?<=;)\n", text)
 kept: list[str] = []
 for statement in statements:
-    body = "\n".join(
-        line for line in statement.splitlines() if not line.startswith(("--", "\\"))
-    ).strip()
+    body = "\n".join(line for line in statement.splitlines() if not line.startswith(("--", "\\"))).strip()
     if not body:
         continue
     upper = body.upper()

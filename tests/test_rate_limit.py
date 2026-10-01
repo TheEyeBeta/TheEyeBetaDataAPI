@@ -12,6 +12,7 @@ from app.core.rate_limit import RateLimitMiddleware
 # Unit tests — no FastAPI app import, no env vars needed
 # ---------------------------------------------------------------------------
 
+
 def _make_middleware(max_requests: int = 5, window: int = 60) -> RateLimitMiddleware:
     from collections import defaultdict
 
@@ -118,6 +119,7 @@ def test_limit_response_has_correct_shape() -> None:
     resp = mw._limit_response(request)
     assert resp.status_code == 429
     import json
+
     body = json.loads(resp.body)
     assert body["error"]["code"] == "RATE_LIMIT_EXCEEDED"
     assert resp.headers.get("retry-after") == "60"

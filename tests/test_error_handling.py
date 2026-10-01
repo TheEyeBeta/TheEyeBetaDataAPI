@@ -31,10 +31,14 @@ def _make_user_token(scopes: list[str]) -> str:
 # 401 — no credentials
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("path", [
-    "/api/v1/context",
-    "/api/v1/market-data/quotes?symbols=AAPL",
-])
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/v1/context",
+        "/api/v1/market-data/quotes?symbols=AAPL",
+    ],
+)
 def test_unauthenticated_request_returns_401(path: str) -> None:
     from fastapi.testclient import TestClient
 
@@ -67,6 +71,7 @@ def test_malformed_bearer_token_returns_401() -> None:
 # 403 — wrong scope
 # ---------------------------------------------------------------------------
 
+
 def test_wrong_scope_returns_403() -> None:
     from fastapi.testclient import TestClient
 
@@ -85,6 +90,7 @@ def test_wrong_scope_returns_403() -> None:
 # ---------------------------------------------------------------------------
 # 422 — invalid parameters
 # ---------------------------------------------------------------------------
+
 
 def test_out_of_range_limit_returns_422() -> None:
     from fastapi.testclient import TestClient
@@ -124,6 +130,7 @@ def test_422_message_does_not_leak_server_paths() -> None:
 # Request-ID propagation
 # ---------------------------------------------------------------------------
 
+
 def test_401_response_echoes_request_id() -> None:
     from fastapi.testclient import TestClient
 
@@ -155,9 +162,7 @@ def test_422_does_not_echo_submitted_values() -> None:
     from app.main import app
 
     secret_like = "refresh-SECRET-VALUE-0123456789"
-    resp = TestClient(app).post(
-        "/api/v1/auth/refresh", json={"refresh_token": secret_like, "unexpected": secret_like}
-    )
+    resp = TestClient(app).post("/api/v1/auth/refresh", json={"refresh_token": secret_like, "unexpected": secret_like})
     assert resp.status_code == 422
     message = resp.json()["error"]["message"]
     assert "extra_forbidden" in message

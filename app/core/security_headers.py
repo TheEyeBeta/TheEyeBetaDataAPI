@@ -24,9 +24,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
                 "connect-src 'self'; frame-ancestors 'none'; base-uri 'none'"
             )
         else:
-            response.headers["Content-Security-Policy"] = (
-                "default-src 'none'; frame-ancestors 'none'; base-uri 'none'"
-            )
+            response.headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'"
 
         response.headers["Cache-Control"] = "no-store"
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"

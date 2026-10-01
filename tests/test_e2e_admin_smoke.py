@@ -46,7 +46,9 @@ def admin_service(monkeypatch: pytest.MonkeyPatch) -> list[httpx.Request]:
     real = httpx.AsyncClient
     monkeypatch.setattr(settings, "admin_gateway_enabled", True)
     monkeypatch.setattr(settings, "admin_service_url", "http://127.0.0.1:7200")
-    monkeypatch.setattr(admin_gateway.httpx, "AsyncClient", lambda **kw: real(transport=httpx.MockTransport(handler), **kw))
+    monkeypatch.setattr(
+        admin_gateway.httpx, "AsyncClient", lambda **kw: real(transport=httpx.MockTransport(handler), **kw)
+    )
     return calls
 
 

@@ -60,9 +60,7 @@ class MacroService:
         """Return metadata plus observations for one series, or None if unknown."""
         if not self._repository.series_exists(code):
             return None
-        observations = self._repository.get_observations(
-            code=code, start=start, end=end, limit=limit
-        )
+        observations = self._repository.get_observations(code=code, start=start, end=end, limit=limit)
         meta = MACRO_SERIES_METADATA.get(code)
         return MacroSeriesDetailResponse(
             code=code,
@@ -76,9 +74,7 @@ class MacroService:
             observation_count=len(observations),
             start=start,
             end=end,
-            observations=[
-                MacroObservationPoint(date=o.date, value=o.value) for o in observations
-            ],
+            observations=[MacroObservationPoint(date=o.date, value=o.value) for o in observations],
         )
 
     def get_latest(self, *, codes: list[str] | None = None) -> MacroLatestResponse:

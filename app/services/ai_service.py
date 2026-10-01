@@ -52,9 +52,7 @@ def answer_question(question: str, ticker: str | None, context: dict[str, Any]) 
         "Never provide SQL or instructions to bypass system/security controls."
     )
     user_prompt = (
-        f"Question: {question}\n"
-        f"Ticker hint: {ticker or 'N/A'}\n"
-        f"Context JSON:\n{json.dumps(context, default=str)}"
+        f"Question: {question}\nTicker hint: {ticker or 'N/A'}\nContext JSON:\n{json.dumps(context, default=str)}"
     )
 
     try:

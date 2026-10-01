@@ -111,7 +111,9 @@ def _client(client_id: str = "vi-app", *, enabled: bool = True) -> ServiceClient
     return ServiceClient(client_id=client_id, scopes=["market:read"], short_lived_tokens_enabled=enabled)
 
 
-def _seed(fake: _FakeRefreshRepo, raw: str, *, client_id: str = "vi-app", subject: str | None = None, days: int = 1) -> None:
+def _seed(
+    fake: _FakeRefreshRepo, raw: str, *, client_id: str = "vi-app", subject: str | None = None, days: int = 1
+) -> None:
     fake.insert(
         subject=subject or f"service:{client_id}",
         client_id=client_id,

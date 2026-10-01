@@ -119,11 +119,7 @@ def _requires_idempotency_key(path: str, method: str) -> bool:
 
 
 def _safe_headers(request: Request) -> dict[str, str]:
-    headers = {
-        key.lower(): value
-        for key, value in request.headers.items()
-        if key.lower() in _FORWARDED_HEADERS
-    }
+    headers = {key.lower(): value for key, value in request.headers.items() if key.lower() in _FORWARDED_HEADERS}
     # Keys are lower-cased so this only fills a missing ID, never duplicates one.
     headers.setdefault("x-request-id", getattr(request.state, "request_id", ""))
     return {key: value for key, value in headers.items() if value}
@@ -131,9 +127,7 @@ def _safe_headers(request: Request) -> dict[str, str]:
 
 # Opaque catch-all proxy: excluded from OpenAPI (one function across five
 # methods also produced duplicate operation IDs).
-@router.api_route(
-    "/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"], include_in_schema=False
-)
+@router.api_route("/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"], include_in_schema=False)
 async def proxy_admin_request(path: str, request: Request) -> Response:
     """Forward one approved request without interpreting administrator identity."""
     if not settings.admin_gateway_enabled:
@@ -141,9 +135,7 @@ async def proxy_admin_request(path: str, request: Request) -> Response:
     if not is_allowed_admin_route(path, request.method):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Admin route is not exposed")
     normalized_path = _normalized_admin_path(path) or ""
-    if _requires_idempotency_key(normalized_path, request.method) and not request.headers.get(
-        "X-Idempotency-Key"
-    ):
+    if _requires_idempotency_key(normalized_path, request.method) and not request.headers.get("X-Idempotency-Key"):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="X-Idempotency-Key header is required for admin mutations",

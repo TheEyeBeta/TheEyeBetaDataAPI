@@ -82,7 +82,11 @@ def main() -> int:
         relative = path[len("/admin/") :]
         # Same first-match rule as admin_gateway.is_allowed_admin_route.
         family = next(
-            (p for p in prefixes if relative == p or relative.startswith(f"{p}/") or (p.endswith("/") and relative.startswith(p))),
+            (
+                p
+                for p in prefixes
+                if relative == p or relative.startswith(f"{p}/") or (p.endswith("/") and relative.startswith(p))
+            ),
             None,
         )
         if family is None:

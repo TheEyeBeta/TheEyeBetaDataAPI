@@ -72,9 +72,7 @@ def decode_signed_claims(
     if not candidates:
         raise AuthenticationError("JWT verification key not configured")
 
-    enforce_iss_aud = (
-        settings.jwt_require_iss_aud if require_iss_aud is None else require_iss_aud
-    )
+    enforce_iss_aud = settings.jwt_require_iss_aud if require_iss_aud is None else require_iss_aud
     options = _decode_options(require_iss_aud=enforce_iss_aud)
     kwargs: dict[str, Any] = {
         "algorithms": algorithms,

@@ -34,11 +34,7 @@ def main() -> int:
     raw_values = dotenv_values(env_path)
     values = {key: value for key, value in raw_values.items() if value is not None}
 
-    old_signing = (
-        values.get("JWT_SIGNING_SECRET_CURRENT")
-        or values.get("JWT_SECRET")
-        or ""
-    )
+    old_signing = values.get("JWT_SIGNING_SECRET_CURRENT") or values.get("JWT_SECRET") or ""
     new_signing = _new_secret()
     if old_signing:
         values["JWT_SIGNING_SECRET_PREVIOUS"] = old_signing
@@ -71,9 +67,7 @@ def main() -> int:
 
     values["SERVICE_CLIENTS_JSON"] = json.dumps(clients, separators=(",", ":"))
 
-    backup_path = env_path.with_name(
-        f"{env_path.name}.bak.{dt.datetime.now(dt.UTC).strftime('%Y%m%d%H%M%S')}"
-    )
+    backup_path = env_path.with_name(f"{env_path.name}.bak.{dt.datetime.now(dt.UTC).strftime('%Y%m%d%H%M%S')}")
     backup_path.write_text(env_path.read_text(encoding="utf-8"), encoding="utf-8")
     backup_path.chmod(0o600)
 

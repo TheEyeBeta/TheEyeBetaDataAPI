@@ -45,7 +45,7 @@ def test_rule_references_exported_metrics_and_real_routes(rule: dict) -> None:
     exported = client.get("/metrics").text
     for metric in re.findall(r"\b([a-z_]+_total)\{", rule["expr"]):
         assert f"{metric}{{" in exported, f"{rule['alert']}: {metric} is not exported by the app"
-    assert "status=~\"4xx" not in rule["expr"], "status codes are not grouped (should_group_status_codes=False)"
+    assert 'status=~"4xx' not in rule["expr"], "status codes are not grouped (should_group_status_codes=False)"
 
     routes = list(app.openapi()["paths"])
     for kind, value in re.findall(r'handler(=~?)"([^"]+)"', rule["expr"]):

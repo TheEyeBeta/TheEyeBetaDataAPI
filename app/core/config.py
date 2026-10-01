@@ -21,9 +21,7 @@ PRODUCTION_APPLICATION_ORIGINS: tuple[str, ...] = (
 class Settings(BaseSettings):
     """Runtime configuration loaded from environment variables."""
 
-    model_config = SettingsConfigDict(
-        env_file=".env", env_file_encoding="utf-8", extra="ignore"
-    )
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     app_name: str = "TheEyeBetaDataAPI"
     app_version: str = "0.1.0"
@@ -206,9 +204,7 @@ class Settings(BaseSettings):
                 raise ValueError("TRUSTED_HOSTS cannot include '*' in production")
             if "*" in self.parsed_cors_origins:
                 raise ValueError("CORS_ORIGINS cannot include '*' in production")
-            if self.user_jwt_jwks_url and not self.user_jwt_jwks_url.startswith(
-                "https://"
-            ):
+            if self.user_jwt_jwks_url and not self.user_jwt_jwks_url.startswith("https://"):
                 raise ValueError("USER_JWT_JWKS_URL must be https:// in production")
         if self.service_mtls_enabled and not self.trust_proxy_headers:
             raise ValueError("SERVICE_MTLS_ENABLED requires TRUST_PROXY_HEADERS=true")
@@ -219,9 +215,7 @@ class Settings(BaseSettings):
                 "localhost",
                 "::1",
             }:
-                raise ValueError(
-                    "ADMIN_SERVICE_URL must be an http loopback URL when gateway is enabled"
-                )
+                raise ValueError("ADMIN_SERVICE_URL must be an http loopback URL when gateway is enabled")
         if self.environment == "production" and not self.policy_enforcement_enabled:
             raise ValueError("POLICY_ENFORCEMENT_ENABLED must be true in production")
         if self.service_client_auth_mode in {"environment", "hybrid"}:
@@ -270,9 +264,7 @@ class Settings(BaseSettings):
             try:
                 parsed = json.loads(raw)
             except (TypeError, json.JSONDecodeError) as exc:
-                raise ValueError(
-                    "service_mtls_subjects_json must be valid JSON"
-                ) from exc
+                raise ValueError("service_mtls_subjects_json must be valid JSON") from exc
         if not isinstance(parsed, dict):
             raise ValueError("service_mtls_subjects_json must be a JSON object")
 
@@ -283,9 +275,7 @@ class Settings(BaseSettings):
             elif isinstance(subjects, list):
                 values = [str(value) for value in subjects]
             else:
-                raise ValueError(
-                    "service_mtls_subjects_json values must be string or string array"
-                )
+                raise ValueError("service_mtls_subjects_json values must be string or string array")
             cleaned = [value.strip() for value in values if value.strip()]
             if cleaned:
                 normalized[str(client_id)] = cleaned
@@ -318,9 +308,7 @@ class Settings(BaseSettings):
     @property
     def parsed_user_jwt_algorithms(self) -> list[str]:
         """Return user JWT algorithms list."""
-        return [
-            alg.strip() for alg in self.user_jwt_algorithms.split(",") if alg.strip()
-        ]
+        return [alg.strip() for alg in self.user_jwt_algorithms.split(",") if alg.strip()]
 
     @property
     def openapi_docs_enabled(self) -> bool:

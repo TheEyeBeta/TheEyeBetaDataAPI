@@ -51,8 +51,7 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
 
         log = logger.warning if status >= 400 else logger.info
         log(
-            "request_complete method=%s path=%s status=%s duration_ms=%s "
-            "client_ip=%s auth_type=%s auth_subject=%s",
+            "request_complete method=%s path=%s status=%s duration_ms=%s client_ip=%s auth_type=%s auth_subject=%s",
             request.method,
             request.url.path,
             status,

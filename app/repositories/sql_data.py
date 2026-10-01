@@ -73,9 +73,10 @@ class SQLReadOnlyDataRepository:
 
     def list_tables(self) -> list[DataTableInfo]:
         try:
-            rows = self._session.execute(
-                text(
-                    """
+            rows = (
+                self._session.execute(
+                    text(
+                        """
                     SELECT
                         t.table_name,
                         t.table_type,
@@ -87,14 +88,19 @@ class SQLReadOnlyDataRepository:
                     WHERE t.table_schema = :schema
                     ORDER BY t.table_name
                     """
-                ),
-                {"schema": _SCHEMA},
-            ).mappings().all()
+                    ),
+                    {"schema": _SCHEMA},
+                )
+                .mappings()
+                .all()
+            )
             return [
                 DataTableInfo(
                     name=str(row["table_name"]),
                     table_type=str(row["table_type"]),
-                    row_count_estimate=int(row["row_count_estimate"]) if row.get("row_count_estimate") is not None else None,
+                    row_count_estimate=int(row["row_count_estimate"])
+                    if row.get("row_count_estimate") is not None
+                    else None,
                 )
                 for row in rows
             ]
@@ -107,18 +113,22 @@ class SQLReadOnlyDataRepository:
     def list_columns(self, table: str) -> list[DataColumnInfo]:
         _quote_ident(table)
         try:
-            rows = self._session.execute(
-                text(
-                    """
+            rows = (
+                self._session.execute(
+                    text(
+                        """
                     SELECT column_name, data_type, is_nullable, ordinal_position
                     FROM information_schema.columns
                     WHERE table_schema = :schema
                       AND table_name = :table
                     ORDER BY ordinal_position
                     """
-                ),
-                {"schema": _SCHEMA, "table": table},
-            ).mappings().all()
+                    ),
+                    {"schema": _SCHEMA, "table": table},
+                )
+                .mappings()
+                .all()
+            )
         except SQLAlchemyError as exc:
             raise DatabaseUnavailableError("Unable to list table columns") from exc
         if not rows and not self.table_exists(table):
@@ -217,17 +227,21 @@ class SQLReadOnlyDataRepository:
     def _table_type(self, table: str) -> str | None:
         _quote_ident(table)
         try:
-            row = self._session.execute(
-                text(
-                    """
+            row = (
+                self._session.execute(
+                    text(
+                        """
                     SELECT table_type
                     FROM information_schema.tables
                     WHERE table_schema = :schema
                       AND table_name = :table
                     """
-                ),
-                {"schema": _SCHEMA, "table": table},
-            ).mappings().first()
+                    ),
+                    {"schema": _SCHEMA, "table": table},
+                )
+                .mappings()
+                .first()
+            )
         except SQLAlchemyError as exc:
             raise DatabaseUnavailableError("Unable to inspect table") from exc
         return str(row["table_type"]) if row else None

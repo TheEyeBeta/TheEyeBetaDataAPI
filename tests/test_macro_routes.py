@@ -150,9 +150,7 @@ def test_macro_latest_ok() -> None:
     app.dependency_overrides[get_macro_service] = lambda: _FakeMacroService()
     client = TestClient(app)
     token = _make_user_token(scopes=["market:read"])
-    response = client.get(
-        f"{MACRO_PREFIX}/latest?codes=DGS10", headers={"Authorization": f"Bearer {token}"}
-    )
+    response = client.get(f"{MACRO_PREFIX}/latest?codes=DGS10", headers={"Authorization": f"Bearer {token}"})
     assert response.status_code == 200
     assert response.json()["observations"][0]["code"] == "DGS10"
     app.dependency_overrides.clear()

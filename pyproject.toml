@@ -7,7 +7,7 @@ extend-exclude = ["packages"]
 # pyflakes, pycodestyle, isort, bugbear, pyupgrade, bandit (security)
 select = ["E", "F", "W", "I", "B", "UP", "S"]
 ignore = [
-    "E501",  # long lines: no whole-codebase reformat in one sweep (docs/TECH_DEBT.md)
+    "E501",  # ruff format owns wrapping; long string literals/SQL stay as written
     "B008",  # FastAPI Depends()/Query() in argument defaults is the framework idiom
     "UP042", # str+Enum -> StrEnum changes str() output; a behavior change, not a lint fix
 ]

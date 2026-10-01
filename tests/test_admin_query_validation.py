@@ -22,6 +22,7 @@ class _FakeSession:
                 class _Mappings:
                     def all(self_inner2):
                         return []
+
                 return _Mappings()
 
         return _Result()
@@ -31,19 +32,22 @@ def _repo() -> SQLMarketDataRepository:
     return SQLMarketDataRepository(_FakeSession())
 
 
-@pytest.mark.parametrize("query", [
-    "SELECT * FROM theeyebeta.instruments",
-    "SELECT COUNT(*) FROM theeyebeta.instruments",
-    "INSERT INTO tickers VALUES (1)",
-    "UPDATE tickers SET is_active = false",
-    "DELETE FROM tickers",
-    "DROP TABLE tickers",
-    "ALTER TABLE tickers ADD COLUMN foo TEXT",
-    "TRUNCATE tickers",
-    "CREATE TABLE evil (id INT)",
-    "GRANT ALL ON tickers TO PUBLIC",
-    "REVOKE SELECT ON tickers FROM user",
-])
+@pytest.mark.parametrize(
+    "query",
+    [
+        "SELECT * FROM theeyebeta.instruments",
+        "SELECT COUNT(*) FROM theeyebeta.instruments",
+        "INSERT INTO tickers VALUES (1)",
+        "UPDATE tickers SET is_active = false",
+        "DELETE FROM tickers",
+        "DROP TABLE tickers",
+        "ALTER TABLE tickers ADD COLUMN foo TEXT",
+        "TRUNCATE tickers",
+        "CREATE TABLE evil (id INT)",
+        "GRANT ALL ON tickers TO PUBLIC",
+        "REVOKE SELECT ON tickers FROM user",
+    ],
+)
 def test_arbitrary_sql_queries_are_disabled(query: str) -> None:
     repo = _repo()
     with pytest.raises(ValidationAppError, match="Arbitrary SQL is disabled"):
@@ -52,17 +56,21 @@ def test_arbitrary_sql_queries_are_disabled(query: str) -> None:
 
 # ---------- Named query allowlist ----------
 
-@pytest.mark.parametrize("query_name", [
-    "all_tickers",
-    "latest_prices",
-    "latest_signals",
-    "orders",
-    "portfolio",
-    "command_log",
-    "market_news",
-    "heartbeats",
-    "table_stats",
-])
+
+@pytest.mark.parametrize(
+    "query_name",
+    [
+        "all_tickers",
+        "latest_prices",
+        "latest_signals",
+        "orders",
+        "portfolio",
+        "command_log",
+        "market_news",
+        "heartbeats",
+        "table_stats",
+    ],
+)
 def test_known_named_queries_are_executed(query_name: str) -> None:
     repo = _repo()
     result = repo.execute_named_query(query_name, limit=5)

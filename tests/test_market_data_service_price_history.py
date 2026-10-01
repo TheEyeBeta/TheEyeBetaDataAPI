@@ -61,9 +61,7 @@ def test_adjust_splits_dividends_rescales_ohlc_and_includes_actions() -> None:
     repo = _FakeRepository(prices=[_bar(100.0, 90.0)], actions=[action])
     service = MarketDataService(repository=repo)
 
-    result = service.get_price_history(
-        ticker="aapl", start=None, end=None, limit=252, adjust="splits_dividends"
-    )
+    result = service.get_price_history(ticker="aapl", start=None, end=None, limit=252, adjust="splits_dividends")
 
     assert result.adjustment == "splits_dividends"
     bar = result.prices[0]
@@ -80,8 +78,6 @@ def test_adjust_splits_dividends_leaves_bar_unchanged_when_adj_close_missing() -
     repo = _FakeRepository(prices=[_bar(100.0, None)], actions=[])
     service = MarketDataService(repository=repo)
 
-    result = service.get_price_history(
-        ticker="aapl", start=None, end=None, limit=252, adjust="splits_dividends"
-    )
+    result = service.get_price_history(ticker="aapl", start=None, end=None, limit=252, adjust="splits_dividends")
 
     assert result.prices[0].close == 100.0

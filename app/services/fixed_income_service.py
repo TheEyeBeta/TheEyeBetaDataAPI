@@ -40,10 +40,7 @@ class FixedIncomeService:
                     limit=50,
                 )
             ],
-            etf_proxies=[
-                self._to_proxy_response(proxy)
-                for proxy in self._repository.get_etf_proxy_prices()
-            ],
+            etf_proxies=[self._to_proxy_response(proxy) for proxy in self._repository.get_etf_proxy_prices()],
         )
 
     def get_history(

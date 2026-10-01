@@ -98,8 +98,7 @@ _CURATED_ADMIN_QUERIES: dict[str, str] = {
         " FROM theeyebeta.positions ORDER BY market_value DESC NULLS LAST LIMIT :limit"
     ),
     "command_log": (
-        "SELECT id, actor, action, entity_type, entity_id, ts"
-        " FROM theeyebeta.audit_log ORDER BY ts DESC LIMIT :limit"
+        "SELECT id, actor, action, entity_type, entity_id, ts FROM theeyebeta.audit_log ORDER BY ts DESC LIMIT :limit"
     ),
     "market_news": (
         "SELECT id, provider, url, headline, summary, source, category, related, published_at, fetched_at"
@@ -135,9 +134,10 @@ class SQLMarketDataRepository(MarketDataRepository):
 
     def get_active_tickers(self, limit: int = 50) -> list[TickerSummary]:
         try:
-            rows = self._session.execute(
-                text(
-                    """
+            rows = (
+                self._session.execute(
+                    text(
+                        """
                     SELECT
                         symbol AS ticker,
                         COALESCE(metadata->>'company_name', metadata->>'name', symbol) AS company_name
@@ -146,9 +146,12 @@ class SQLMarketDataRepository(MarketDataRepository):
                     ORDER BY symbol
                     LIMIT :limit
                     """
-                ),
-                {"limit": limit},
-            ).mappings().all()
+                    ),
+                    {"limit": limit},
+                )
+                .mappings()
+                .all()
+            )
             return [TickerSummary(ticker=str(row["ticker"]), company_name=str(row["company_name"])) for row in rows]
         except SQLAlchemyError as exc:
             logger.exception("get_active_tickers failed")
@@ -156,9 +159,10 @@ class SQLMarketDataRepository(MarketDataRepository):
 
     def search_symbols(self, query: str, limit: int = 25) -> list[TickerSummary]:
         try:
-            rows = self._session.execute(
-                text(
-                    """
+            rows = (
+                self._session.execute(
+                    text(
+                        """
                     SELECT
                         symbol AS ticker,
                         COALESCE(metadata->>'company_name', metadata->>'name', symbol) AS company_name
@@ -186,14 +190,17 @@ class SQLMarketDataRepository(MarketDataRepository):
                       symbol
                     LIMIT :limit
                     """
-                ),
-                {
-                    "query": query.strip(),
-                    "prefix": f"{query.strip()}%",
-                    "name_like": f"%{query.strip()}%",
-                    "limit": limit,
-                },
-            ).mappings().all()
+                    ),
+                    {
+                        "query": query.strip(),
+                        "prefix": f"{query.strip()}%",
+                        "name_like": f"%{query.strip()}%",
+                        "limit": limit,
+                    },
+                )
+                .mappings()
+                .all()
+            )
             return [TickerSummary(ticker=str(row["ticker"]), company_name=str(row["company_name"])) for row in rows]
         except SQLAlchemyError as exc:
             logger.exception("search_symbols failed")
@@ -252,9 +259,10 @@ class SQLMarketDataRepository(MarketDataRepository):
 
     def get_latest_snapshot(self, ticker: str) -> TickerSnapshot | None:
         try:
-            row = self._session.execute(
-                text(
-                    """
+            row = (
+                self._session.execute(
+                    text(
+                        """
                     SELECT
                         i.symbol AS ticker,
                         COALESCE(i.metadata->>'company_name', i.metadata->>'name', i.symbol) AS company_name,
@@ -285,9 +293,12 @@ class SQLMarketDataRepository(MarketDataRepository):
                     LEFT JOIN theeyebeta.fundamentals_company fc ON fc.instrument_id = ls.instrument_id
                     WHERE UPPER(i.symbol) = UPPER(:ticker)
                     """
-                ),
-                {"ticker": ticker},
-            ).mappings().first()
+                    ),
+                    {"ticker": ticker},
+                )
+                .mappings()
+                .first()
+            )
             if not row:
                 return None
             return TickerSnapshot(
@@ -312,17 +323,21 @@ class SQLMarketDataRepository(MarketDataRepository):
 
     def get_recent_news(self, limit: int = 10) -> list[MarketNewsItem]:
         try:
-            rows = self._session.execute(
-                text(
-                    """
+            rows = (
+                self._session.execute(
+                    text(
+                        """
                     SELECT headline, source, category, published_at
                     FROM theeyebeta.market_news
                     ORDER BY published_at DESC
                     LIMIT :limit
                     """
-                ),
-                {"limit": limit},
-            ).mappings().all()
+                    ),
+                    {"limit": limit},
+                )
+                .mappings()
+                .all()
+            )
             return [
                 MarketNewsItem(
                     headline=str(row["headline"]),
@@ -342,9 +357,10 @@ class SQLMarketDataRepository(MarketDataRepository):
             if ticker:
                 params["ticker"] = ticker
 
-            rows = self._session.execute(
-                text(
-                    f"""
+            rows = (
+                self._session.execute(
+                    text(
+                        f"""
                     SELECT
                         i.symbol AS ticker,
                         ls.signal_strategy AS strategy_name,
@@ -357,13 +373,16 @@ class SQLMarketDataRepository(MarketDataRepository):
                     FROM theeyebeta.latest_snapshots ls
                     JOIN theeyebeta.instruments i ON i.id = ls.instrument_id
                     WHERE ls.latest_signal IS NOT NULL
-                      {'AND UPPER(i.symbol) = UPPER(:ticker)' if ticker else ''}
+                      {"AND UPPER(i.symbol) = UPPER(:ticker)" if ticker else ""}
                     ORDER BY ls.signal_ts DESC NULLS LAST, i.symbol ASC
                     LIMIT :limit
                     """  # noqa: S608
-                ),
-                params,
-            ).mappings().all()
+                    ),
+                    params,
+                )
+                .mappings()
+                .all()
+            )
             return [
                 SignalRecord(
                     ticker=str(row["ticker"]),
@@ -383,9 +402,10 @@ class SQLMarketDataRepository(MarketDataRepository):
 
     def get_portfolio_valuation(self) -> PortfolioValuation | None:
         try:
-            row = self._session.execute(
-                text(
-                    """
+            row = (
+                self._session.execute(
+                    text(
+                        """
                     SELECT
                         MAX(updated_at)::date AS valuation_date,
                         SUM(market_value) AS total_value,
@@ -399,8 +419,11 @@ class SQLMarketDataRepository(MarketDataRepository):
                     FROM theeyebeta.positions
                     LIMIT 1
                     """
+                    )
                 )
-            ).mappings().first()
+                .mappings()
+                .first()
+            )
             if not row or row.get("total_value") is None:
                 return None
             currency = row.get("currency_code")
@@ -421,9 +444,10 @@ class SQLMarketDataRepository(MarketDataRepository):
 
     def get_portfolio_positions(self, limit: int = 100) -> list[PortfolioPosition]:
         try:
-            rows = self._session.execute(
-                text(
-                    """
+            rows = (
+                self._session.execute(
+                    text(
+                        """
                     SELECT
                         i.symbol AS ticker,
                         COALESCE(i.metadata->>'company_name', i.metadata->>'name', i.symbol) AS company_name,
@@ -439,9 +463,12 @@ class SQLMarketDataRepository(MarketDataRepository):
                     ORDER BY market_value DESC NULLS LAST, i.symbol
                     LIMIT :limit
                     """
-                ),
-                {"limit": limit},
-            ).mappings().all()
+                    ),
+                    {"limit": limit},
+                )
+                .mappings()
+                .all()
+            )
             return [
                 PortfolioPosition(
                     ticker=str(row["ticker"]),
@@ -466,9 +493,10 @@ class SQLMarketDataRepository(MarketDataRepository):
             if category:
                 where_clause = "WHERE event_category = :category"
                 params["category"] = category
-            rows = self._session.execute(
-                text(
-                    f"""
+            rows = (
+                self._session.execute(
+                    text(
+                        f"""
                     SELECT
                         event_id::text AS event_id,
                         event_type,
@@ -485,9 +513,12 @@ class SQLMarketDataRepository(MarketDataRepository):
                     ORDER BY created_at DESC
                     LIMIT :limit
                     """  # noqa: S608
-                ),
-                params,
-            ).mappings().all()
+                    ),
+                    params,
+                )
+                .mappings()
+                .all()
+            )
             return [
                 AdminAuditEvent(
                     event_id=str(row["event_id"]),
@@ -509,16 +540,20 @@ class SQLMarketDataRepository(MarketDataRepository):
 
     def get_table_row_counts(self) -> list[dict[str, Any]]:
         try:
-            rows = self._session.execute(
-                text(
-                    """
+            rows = (
+                self._session.execute(
+                    text(
+                        """
                     SELECT relname AS table, n_live_tup AS row_count
                     FROM pg_stat_user_tables
                     WHERE schemaname = 'theeyebeta'
                     ORDER BY n_live_tup DESC, relname
                     """
+                    )
                 )
-            ).mappings().all()
+                .mappings()
+                .all()
+            )
             return [{"table": str(r["table"]), "row_count": int(r["row_count"])} for r in rows]
         except SQLAlchemyError as exc:
             logger.exception("get_table_row_counts failed")
@@ -526,9 +561,10 @@ class SQLMarketDataRepository(MarketDataRepository):
 
     def get_engine_worker_heartbeats(self) -> list[dict[str, Any]]:
         try:
-            rows = self._session.execute(
-                text(
-                    """
+            rows = (
+                self._session.execute(
+                    text(
+                        """
                     SELECT
                         worker_id AS worker_name,
                         status,
@@ -538,8 +574,11 @@ class SQLMarketDataRepository(MarketDataRepository):
                     FROM theeyebeta.worker_heartbeats
                     ORDER BY worker_id
                     """
+                    )
                 )
-            ).mappings().all()
+                .mappings()
+                .all()
+            )
             return [
                 {
                     "worker_name": str(row["worker_name"]),
@@ -563,10 +602,7 @@ class SQLMarketDataRepository(MarketDataRepository):
             raise ValidationAppError(f"Unknown query name: {query_name!r}")
         try:
             rows = self._session.execute(text(sql), {"limit": limit}).mappings().all()
-            return [
-                {k: (str(v) if v is not None else None) for k, v in dict(row).items()}
-                for row in rows
-            ]
+            return [{k: (str(v) if v is not None else None) for k, v in dict(row).items()} for row in rows]
         except SQLAlchemyError as exc:
             logger.exception("execute_named_query failed query_name=%s", query_name)
             # Driver text carries SQL and parameters: log it, never return it.
@@ -581,18 +617,21 @@ class SQLMarketDataRepository(MarketDataRepository):
 
     def get_active_ticker_count(self) -> int:
         try:
-            row = self._session.execute(
-                text("SELECT COUNT(*) AS cnt FROM theeyebeta.instruments WHERE active = true")
-            ).mappings().first()
+            row = (
+                self._session.execute(text("SELECT COUNT(*) AS cnt FROM theeyebeta.instruments WHERE active = true"))
+                .mappings()
+                .first()
+            )
             return int(row["cnt"]) if row else 0
         except SQLAlchemyError:
             return -1
 
     def get_service_client_summary(self) -> list[dict[str, Any]]:
         try:
-            rows = self._session.execute(
-                text(
-                    """
+            rows = (
+                self._session.execute(
+                    text(
+                        """
                     SELECT
                         sc.client_id,
                         sc.display_name,
@@ -603,8 +642,11 @@ class SQLMarketDataRepository(MarketDataRepository):
                     FROM iam.service_clients sc
                     ORDER BY sc.client_id
                     """
+                    )
                 )
-            ).mappings().all()
+                .mappings()
+                .all()
+            )
             return [
                 {
                     "client_id": str(row["client_id"]),
@@ -623,9 +665,10 @@ class SQLMarketDataRepository(MarketDataRepository):
 
     def get_countries(self) -> list[Country]:
         try:
-            rows = self._session.execute(
-                text(
-                    """
+            rows = (
+                self._session.execute(
+                    text(
+                        """
                     SELECT DISTINCT
                         country_iso2 AS country_code,
                         country_iso2 AS country_name,
@@ -634,18 +677,29 @@ class SQLMarketDataRepository(MarketDataRepository):
                     WHERE country_iso2 IS NOT NULL
                     ORDER BY country_iso2
                     """
+                    )
                 )
-            ).mappings().all()
-            return [Country(country_code=str(r["country_code"]), country_name=str(r["country_name"]), default_timezone=str(r["default_timezone"]) if r.get("default_timezone") else None) for r in rows]
+                .mappings()
+                .all()
+            )
+            return [
+                Country(
+                    country_code=str(r["country_code"]),
+                    country_name=str(r["country_name"]),
+                    default_timezone=str(r["default_timezone"]) if r.get("default_timezone") else None,
+                )
+                for r in rows
+            ]
         except SQLAlchemyError as exc:
             logger.exception("get_countries failed")
             raise DatabaseUnavailableError("Unable to fetch countries") from exc
 
     def get_currencies(self) -> list[Currency]:
         try:
-            rows = self._session.execute(
-                text(
-                    """
+            rows = (
+                self._session.execute(
+                    text(
+                        """
                     SELECT DISTINCT
                         currency_iso AS currency_code,
                         currency_iso AS currency_name,
@@ -654,18 +708,29 @@ class SQLMarketDataRepository(MarketDataRepository):
                     WHERE currency_iso IS NOT NULL
                     ORDER BY currency_iso
                     """
+                    )
                 )
-            ).mappings().all()
-            return [Currency(currency_code=str(r["currency_code"]), currency_name=str(r["currency_name"]), symbol=str(r["symbol"]) if r.get("symbol") else None) for r in rows]
+                .mappings()
+                .all()
+            )
+            return [
+                Currency(
+                    currency_code=str(r["currency_code"]),
+                    currency_name=str(r["currency_name"]),
+                    symbol=str(r["symbol"]) if r.get("symbol") else None,
+                )
+                for r in rows
+            ]
         except SQLAlchemyError as exc:
             logger.exception("get_currencies failed")
             raise DatabaseUnavailableError("Unable to fetch currencies") from exc
 
     def get_exchanges(self) -> list[Exchange]:
         try:
-            rows = self._session.execute(
-                text(
-                    """
+            rows = (
+                self._session.execute(
+                    text(
+                        """
                     SELECT
                         id AS exchange_id,
                         name,
@@ -675,8 +740,11 @@ class SQLMarketDataRepository(MarketDataRepository):
                     FROM theeyebeta.exchanges
                     ORDER BY name
                     """
+                    )
                 )
-            ).mappings().all()
+                .mappings()
+                .all()
+            )
             return [
                 Exchange(
                     exchange_id=int(r["exchange_id"]),
@@ -693,9 +761,10 @@ class SQLMarketDataRepository(MarketDataRepository):
 
     def get_sectors(self) -> list[Sector]:
         try:
-            rows = self._session.execute(
-                text(
-                    """
+            rows = (
+                self._session.execute(
+                    text(
+                        """
                     SELECT DENSE_RANK() OVER (ORDER BY sector)::int AS sector_id, sector AS sector_name
                     FROM (
                         SELECT DISTINCT sector
@@ -704,8 +773,11 @@ class SQLMarketDataRepository(MarketDataRepository):
                     ) sectors
                     ORDER BY sector
                     """
+                    )
                 )
-            ).mappings().all()
+                .mappings()
+                .all()
+            )
             return [Sector(sector_id=int(r["sector_id"]), sector_name=str(r["sector_name"])) for r in rows]
         except SQLAlchemyError as exc:
             logger.exception("get_sectors failed")
@@ -714,9 +786,10 @@ class SQLMarketDataRepository(MarketDataRepository):
     def get_industries(self, sector_id: int | None = None) -> list[Industry]:
         try:
             if sector_id is not None:
-                rows = self._session.execute(
-                    text(
-                        """
+                rows = (
+                    self._session.execute(
+                        text(
+                            """
                         WITH sectors AS (
                             SELECT sector, DENSE_RANK() OVER (ORDER BY sector)::int AS sector_id
                             FROM (
@@ -739,13 +812,17 @@ class SQLMarketDataRepository(MarketDataRepository):
                         WHERE sector_id = :sid
                         ORDER BY industry
                         """
-                    ),
-                    {"sid": sector_id},
-                ).mappings().all()
+                        ),
+                        {"sid": sector_id},
+                    )
+                    .mappings()
+                    .all()
+                )
             else:
-                rows = self._session.execute(
-                    text(
-                        """
+                rows = (
+                    self._session.execute(
+                        text(
+                            """
                         WITH sectors AS (
                             SELECT sector, DENSE_RANK() OVER (ORDER BY sector)::int AS sector_id
                             FROM (
@@ -767,14 +844,26 @@ class SQLMarketDataRepository(MarketDataRepository):
                         FROM industries
                         ORDER BY industry
                         """
+                        )
                     )
-                ).mappings().all()
-            return [Industry(industry_id=int(r["industry_id"]), sector_id=int(r["sector_id"]), industry_name=str(r["industry_name"])) for r in rows]
+                    .mappings()
+                    .all()
+                )
+            return [
+                Industry(
+                    industry_id=int(r["industry_id"]),
+                    sector_id=int(r["sector_id"]),
+                    industry_name=str(r["industry_name"]),
+                )
+                for r in rows
+            ]
         except SQLAlchemyError as exc:
             logger.exception("get_industries failed")
             raise DatabaseUnavailableError("Unable to fetch industries") from exc
 
-    def get_trading_calendar(self, start: date | None = None, end: date | None = None, limit: int = 90) -> list[TradingCalendarDay]:
+    def get_trading_calendar(
+        self, start: date | None = None, end: date | None = None, limit: int = 90
+    ) -> list[TradingCalendarDay]:
         try:
             where_parts = []
             params: dict[str, Any] = {"limit": limit}
@@ -785,10 +874,16 @@ class SQLMarketDataRepository(MarketDataRepository):
                 where_parts.append("calendar_date <= :end")
                 params["end"] = end
             where = ("WHERE " + " AND ".join(where_parts)) if where_parts else ""
-            rows = self._session.execute(
-                text(f"SELECT calendar_date, is_trading_day, market_name, holiday_name, notes FROM theeyebeta.trading_calendar {where} ORDER BY calendar_date DESC LIMIT :limit"),  # noqa: S608
-                params,
-            ).mappings().all()
+            rows = (
+                self._session.execute(
+                    text(
+                        f"SELECT calendar_date, is_trading_day, market_name, holiday_name, notes FROM theeyebeta.trading_calendar {where} ORDER BY calendar_date DESC LIMIT :limit"  # noqa: S608 - where_parts are fixed clauses
+                    ),
+                    params,
+                )
+                .mappings()
+                .all()
+            )
             return [
                 TradingCalendarDay(
                     calendar_date=r["calendar_date"],
@@ -807,9 +902,10 @@ class SQLMarketDataRepository(MarketDataRepository):
 
     def get_ticker_detail(self, ticker: str) -> TickerDetail | None:
         try:
-            row = self._session.execute(
-                text(
-                    """
+            row = (
+                self._session.execute(
+                    text(
+                        """
                     SELECT
                         i.symbol AS ticker,
                         COALESCE(i.metadata->>'company_name', i.metadata->>'name', i.symbol) AS company_name,
@@ -831,9 +927,12 @@ class SQLMarketDataRepository(MarketDataRepository):
                     LEFT JOIN theeyebeta.exchanges e ON e.id = i.exchange_id
                     WHERE UPPER(i.symbol) = UPPER(:ticker)
                     """
-                ),
-                {"ticker": ticker},
-            ).mappings().first()
+                    ),
+                    {"ticker": ticker},
+                )
+                .mappings()
+                .first()
+            )
             if not row:
                 return None
             identifiers = [
@@ -861,7 +960,9 @@ class SQLMarketDataRepository(MarketDataRepository):
             logger.exception("get_ticker_detail failed")
             raise DatabaseUnavailableError("Unable to fetch ticker detail") from exc
 
-    def get_price_history(self, ticker: str, start: date | None = None, end: date | None = None, limit: int = 252) -> list[PriceDay]:
+    def get_price_history(
+        self, ticker: str, start: date | None = None, end: date | None = None, limit: int = 252
+    ) -> list[PriceDay]:
         try:
             where_parts = ["UPPER(i.symbol) = UPPER(:ticker)"]
             params: dict[str, Any] = {"ticker": ticker, "limit": limit}
@@ -872,9 +973,10 @@ class SQLMarketDataRepository(MarketDataRepository):
                 where_parts.append("p.ts::date <= :end")
                 params["end"] = end
             where = " AND ".join(where_parts)
-            rows = self._session.execute(
-                text(
-                    f"""
+            rows = (
+                self._session.execute(
+                    text(
+                        f"""
                     SELECT date, open, high, low, close, adj_close, volume, vwap
                     FROM (
                         SELECT DISTINCT ON (p.ts::date)
@@ -888,9 +990,12 @@ class SQLMarketDataRepository(MarketDataRepository):
                     ORDER BY date DESC
                     LIMIT :limit
                     """  # noqa: S608
-                ),
-                params,
-            ).mappings().all()
+                    ),
+                    params,
+                )
+                .mappings()
+                .all()
+            )
             return [
                 PriceDay(
                     date=r["date"],
@@ -910,9 +1015,10 @@ class SQLMarketDataRepository(MarketDataRepository):
 
     def get_corporate_actions(self, ticker: str, limit: int = 50) -> list[CorporateAction]:
         try:
-            rows = self._session.execute(
-                text(
-                    """
+            rows = (
+                self._session.execute(
+                    text(
+                        """
                     SELECT
                         ca.id AS action_id,
                         ca.ex_date AS action_date,
@@ -930,9 +1036,12 @@ class SQLMarketDataRepository(MarketDataRepository):
                     ORDER BY ca.ex_date DESC
                     LIMIT :limit
                     """
-                ),
-                {"ticker": ticker, "limit": limit},
-            ).mappings().all()
+                    ),
+                    {"ticker": ticker, "limit": limit},
+                )
+                .mappings()
+                .all()
+            )
             return [
                 CorporateAction(
                     action_id=int(r["action_id"]),
@@ -950,9 +1059,10 @@ class SQLMarketDataRepository(MarketDataRepository):
 
     def get_company_fundamentals(self, ticker: str) -> CompanyFundamentals | None:
         try:
-            row = self._session.execute(
-                text(
-                    """
+            row = (
+                self._session.execute(
+                    text(
+                        """
                     SELECT f.sector, f.industry, f.sub_industry, f.ceo, f.full_time_employees,
                            f.headquarters_city, f.headquarters_state, f.headquarters_country,
                            f.market_cap, f.enterprise_value, f.shares_outstanding, f.float_shares,
@@ -963,9 +1073,12 @@ class SQLMarketDataRepository(MarketDataRepository):
                     JOIN theeyebeta.instruments i ON i.id = f.instrument_id
                     WHERE UPPER(i.symbol) = UPPER(:ticker)
                     """
-                ),
-                {"ticker": ticker},
-            ).mappings().first()
+                    ),
+                    {"ticker": ticker},
+                )
+                .mappings()
+                .first()
+            )
             if not row:
                 return None
             return CompanyFundamentals(
@@ -973,7 +1086,9 @@ class SQLMarketDataRepository(MarketDataRepository):
                 industry=str(row["industry"]) if row.get("industry") else None,
                 sub_industry=str(row["sub_industry"]) if row.get("sub_industry") else None,
                 ceo=str(row["ceo"]) if row.get("ceo") else None,
-                full_time_employees=int(row["full_time_employees"]) if row.get("full_time_employees") is not None else None,
+                full_time_employees=int(row["full_time_employees"])
+                if row.get("full_time_employees") is not None
+                else None,
                 headquarters_city=str(row["headquarters_city"]) if row.get("headquarters_city") else None,
                 headquarters_state=str(row["headquarters_state"]) if row.get("headquarters_state") else None,
                 headquarters_country=str(row["headquarters_country"]) if row.get("headquarters_country") else None,
@@ -1007,9 +1122,10 @@ class SQLMarketDataRepository(MarketDataRepository):
 
     def get_income_statements(self, ticker: str, limit: int = 12) -> list[IncomeStatementQ]:
         try:
-            rows = self._session.execute(
-                text(
-                    """
+            rows = (
+                self._session.execute(
+                    text(
+                        """
                     SELECT fi.period_end, fi.fiscal_year, fi.fiscal_quarter,
                            fi.revenue, fi.gross_profit, fi.ebit, fi.ebitda,
                            fi.interest_expense, fi.net_income, fi.eps_basic, fi.eps_diluted
@@ -1019,9 +1135,12 @@ class SQLMarketDataRepository(MarketDataRepository):
                     ORDER BY fi.period_end DESC
                     LIMIT :limit
                     """
-                ),
-                {"ticker": ticker, "limit": limit},
-            ).mappings().all()
+                    ),
+                    {"ticker": ticker, "limit": limit},
+                )
+                .mappings()
+                .all()
+            )
             return [
                 IncomeStatementQ(
                     period_end=_to_date(r.get("period_end")),
@@ -1044,9 +1163,10 @@ class SQLMarketDataRepository(MarketDataRepository):
 
     def get_balance_sheets(self, ticker: str, limit: int = 12) -> list[BalanceSheetQ]:
         try:
-            rows = self._session.execute(
-                text(
-                    """
+            rows = (
+                self._session.execute(
+                    text(
+                        """
                     SELECT fb.period_end, fb.fiscal_year, fb.fiscal_quarter,
                            fb.total_assets, fb.total_liabilities, fb.total_equity,
                            fb.total_debt, fb.cash_and_equivalents, fb.shares_outstanding
@@ -1056,9 +1176,12 @@ class SQLMarketDataRepository(MarketDataRepository):
                     ORDER BY fb.period_end DESC
                     LIMIT :limit
                     """
-                ),
-                {"ticker": ticker, "limit": limit},
-            ).mappings().all()
+                    ),
+                    {"ticker": ticker, "limit": limit},
+                )
+                .mappings()
+                .all()
+            )
             return [
                 BalanceSheetQ(
                     period_end=_to_date(r.get("period_end")),
@@ -1079,9 +1202,10 @@ class SQLMarketDataRepository(MarketDataRepository):
 
     def get_cash_flows(self, ticker: str, limit: int = 12) -> list[CashFlowQ]:
         try:
-            rows = self._session.execute(
-                text(
-                    """
+            rows = (
+                self._session.execute(
+                    text(
+                        """
                     SELECT fc.period_end, fc.fiscal_year, fc.fiscal_quarter,
                            fc.ocf, fc.capex, fc.fcf, fc.working_cap_change, fc.stock_based_comp
                     FROM theeyebeta.fund_cashflow_q fc
@@ -1090,9 +1214,12 @@ class SQLMarketDataRepository(MarketDataRepository):
                     ORDER BY fc.period_end DESC
                     LIMIT :limit
                     """
-                ),
-                {"ticker": ticker, "limit": limit},
-            ).mappings().all()
+                    ),
+                    {"ticker": ticker, "limit": limit},
+                )
+                .mappings()
+                .all()
+            )
             return [
                 CashFlowQ(
                     period_end=_to_date(r.get("period_end")),
@@ -1112,9 +1239,10 @@ class SQLMarketDataRepository(MarketDataRepository):
 
     def get_quality_metrics(self, ticker: str, limit: int = 12) -> list[QualityQ]:
         try:
-            rows = self._session.execute(
-                text(
-                    """
+            rows = (
+                self._session.execute(
+                    text(
+                        """
                     SELECT
                         f.period_end,
                         EXTRACT(YEAR FROM f.period_end)::int AS fiscal_year,
@@ -1140,9 +1268,12 @@ class SQLMarketDataRepository(MarketDataRepository):
                     ORDER BY f.period_end DESC
                     LIMIT :limit
                     """
-                ),
-                {"ticker": ticker, "limit": limit},
-            ).mappings().all()
+                    ),
+                    {"ticker": ticker, "limit": limit},
+                )
+                .mappings()
+                .all()
+            )
             return [
                 QualityQ(
                     period_end=_to_date(r.get("period_end")),
@@ -1172,7 +1303,9 @@ class SQLMarketDataRepository(MarketDataRepository):
 
     # ── Indicator time-series ─────────────────────────────────────────────────
 
-    def _date_range_params(self, ticker: str, start: date | None, end: date | None, limit: int) -> tuple[str, dict[str, Any]]:
+    def _date_range_params(
+        self, ticker: str, start: date | None, end: date | None, limit: int
+    ) -> tuple[str, dict[str, Any]]:
         parts = ["UPPER(inst.symbol) = UPPER(:ticker)"]
         params: dict[str, Any] = {"ticker": ticker, "limit": limit}
         if start:
@@ -1183,12 +1316,15 @@ class SQLMarketDataRepository(MarketDataRepository):
             params["end"] = end
         return " AND ".join(parts), params
 
-    def get_technical_indicators(self, ticker: str, start: date | None = None, end: date | None = None, limit: int = 252) -> list[TechnicalDay]:
+    def get_technical_indicators(
+        self, ticker: str, start: date | None = None, end: date | None = None, limit: int = 252
+    ) -> list[TechnicalDay]:
         try:
             where, params = self._date_range_params(ticker, start, end, limit)
-            rows = self._session.execute(
-                text(
-                    f"""
+            rows = (
+                self._session.execute(
+                    text(
+                        f"""
                     SELECT i.date, i.sma_10, i.sma_50, i.sma_200, i.ema_10, i.ema_50, i.ema_200,
                            i.ema_12, i.ema_26, i.rsi_14, i.macd, i.macd_signal, i.macd_hist,
                            i.roc_10, i.roc_20, i.golden_cross_sma, i.death_cross_sma
@@ -1198,18 +1334,29 @@ class SQLMarketDataRepository(MarketDataRepository):
                     ORDER BY i.date DESC
                     LIMIT :limit
                     """  # noqa: S608
-                ),
-                params,
-            ).mappings().all()
+                    ),
+                    params,
+                )
+                .mappings()
+                .all()
+            )
             return [
                 TechnicalDay(
                     date=r["date"],
-                    sma_10=_to_float(r.get("sma_10")), sma_50=_to_float(r.get("sma_50")), sma_200=_to_float(r.get("sma_200")),
-                    ema_10=_to_float(r.get("ema_10")), ema_50=_to_float(r.get("ema_50")), ema_200=_to_float(r.get("ema_200")),
-                    ema_12=_to_float(r.get("ema_12")), ema_26=_to_float(r.get("ema_26")),
+                    sma_10=_to_float(r.get("sma_10")),
+                    sma_50=_to_float(r.get("sma_50")),
+                    sma_200=_to_float(r.get("sma_200")),
+                    ema_10=_to_float(r.get("ema_10")),
+                    ema_50=_to_float(r.get("ema_50")),
+                    ema_200=_to_float(r.get("ema_200")),
+                    ema_12=_to_float(r.get("ema_12")),
+                    ema_26=_to_float(r.get("ema_26")),
                     rsi_14=_to_float(r.get("rsi_14")),
-                    macd=_to_float(r.get("macd")), macd_signal=_to_float(r.get("macd_signal")), macd_hist=_to_float(r.get("macd_hist")),
-                    roc_10=_to_float(r.get("roc_10")), roc_20=_to_float(r.get("roc_20")),
+                    macd=_to_float(r.get("macd")),
+                    macd_signal=_to_float(r.get("macd_signal")),
+                    macd_hist=_to_float(r.get("macd_hist")),
+                    roc_10=_to_float(r.get("roc_10")),
+                    roc_20=_to_float(r.get("roc_20")),
                     golden_cross_sma=bool(r["golden_cross_sma"]) if r.get("golden_cross_sma") is not None else None,
                     death_cross_sma=bool(r["death_cross_sma"]) if r.get("death_cross_sma") is not None else None,
                 )
@@ -1219,12 +1366,15 @@ class SQLMarketDataRepository(MarketDataRepository):
             logger.exception("get_technical_indicators failed")
             raise DatabaseUnavailableError("Unable to fetch technical indicators") from exc
 
-    def get_risk_indicators(self, ticker: str, start: date | None = None, end: date | None = None, limit: int = 252) -> list[RiskDay]:
+    def get_risk_indicators(
+        self, ticker: str, start: date | None = None, end: date | None = None, limit: int = 252
+    ) -> list[RiskDay]:
         try:
             where, params = self._date_range_params(ticker, start, end, limit)
-            rows = self._session.execute(
-                text(
-                    f"""
+            rows = (
+                self._session.execute(
+                    text(
+                        f"""
                     SELECT i.date, i.atr_14, i.hist_vol_20d, i.hist_vol_60d, i.beta_sp500_60d,
                            i.worst_drop_1d, i.worst_drop_5d, i.worst_drop_10d,
                            i.max_drawdown_1y, i.max_drawdown_2y,
@@ -1235,18 +1385,27 @@ class SQLMarketDataRepository(MarketDataRepository):
                     ORDER BY i.date DESC
                     LIMIT :limit
                     """  # noqa: S608
-                ),
-                params,
-            ).mappings().all()
+                    ),
+                    params,
+                )
+                .mappings()
+                .all()
+            )
             return [
                 RiskDay(
                     date=r["date"],
                     atr_14=_to_float(r.get("atr_14")),
-                    hist_vol_20d=_to_float(r.get("hist_vol_20d")), hist_vol_60d=_to_float(r.get("hist_vol_60d")),
+                    hist_vol_20d=_to_float(r.get("hist_vol_20d")),
+                    hist_vol_60d=_to_float(r.get("hist_vol_60d")),
                     beta_sp500_60d=_to_float(r.get("beta_sp500_60d")),
-                    worst_drop_1d=_to_float(r.get("worst_drop_1d")), worst_drop_5d=_to_float(r.get("worst_drop_5d")), worst_drop_10d=_to_float(r.get("worst_drop_10d")),
-                    max_drawdown_1y=_to_float(r.get("max_drawdown_1y")), max_drawdown_2y=_to_float(r.get("max_drawdown_2y")),
-                    sharpe_60d=_to_float(r.get("sharpe_60d")), sortino_60d=_to_float(r.get("sortino_60d")), calmar_1y=_to_float(r.get("calmar_1y")),
+                    worst_drop_1d=_to_float(r.get("worst_drop_1d")),
+                    worst_drop_5d=_to_float(r.get("worst_drop_5d")),
+                    worst_drop_10d=_to_float(r.get("worst_drop_10d")),
+                    max_drawdown_1y=_to_float(r.get("max_drawdown_1y")),
+                    max_drawdown_2y=_to_float(r.get("max_drawdown_2y")),
+                    sharpe_60d=_to_float(r.get("sharpe_60d")),
+                    sortino_60d=_to_float(r.get("sortino_60d")),
+                    calmar_1y=_to_float(r.get("calmar_1y")),
                 )
                 for r in rows
             ]
@@ -1254,12 +1413,15 @@ class SQLMarketDataRepository(MarketDataRepository):
             logger.exception("get_risk_indicators failed")
             raise DatabaseUnavailableError("Unable to fetch risk indicators") from exc
 
-    def get_valuation_indicators(self, ticker: str, start: date | None = None, end: date | None = None, limit: int = 252) -> list[ValuationDay]:
+    def get_valuation_indicators(
+        self, ticker: str, start: date | None = None, end: date | None = None, limit: int = 252
+    ) -> list[ValuationDay]:
         try:
             where, params = self._date_range_params(ticker, start, end, limit)
-            rows = self._session.execute(
-                text(
-                    f"""
+            rows = (
+                self._session.execute(
+                    text(
+                        f"""
                     SELECT i.date, i.market_cap, i.enterprise_value,
                            i.pe_ttm, i.forward_pe, i.ps_ttm, i.pb, i.ev_ebitda, i.ev_ebit, i.ev_fcf,
                            i.earnings_yield, i.fcf_yield,
@@ -1270,20 +1432,32 @@ class SQLMarketDataRepository(MarketDataRepository):
                     ORDER BY i.date DESC
                     LIMIT :limit
                     """  # noqa: S608
-                ),
-                params,
-            ).mappings().all()
+                    ),
+                    params,
+                )
+                .mappings()
+                .all()
+            )
             return [
                 ValuationDay(
                     date=r["date"],
-                    market_cap=_to_float(r.get("market_cap")), enterprise_value=_to_float(r.get("enterprise_value")),
-                    pe_ttm=_to_float(r.get("pe_ttm")), forward_pe=_to_float(r.get("forward_pe")),
-                    ps_ttm=_to_float(r.get("ps_ttm")), pb=_to_float(r.get("pb")),
-                    ev_ebitda=_to_float(r.get("ev_ebitda")), ev_ebit=_to_float(r.get("ev_ebit")), ev_fcf=_to_float(r.get("ev_fcf")),
-                    earnings_yield=_to_float(r.get("earnings_yield")), fcf_yield=_to_float(r.get("fcf_yield")),
-                    pct_chg_1w=_to_float(r.get("pct_chg_1w")), pct_chg_3m=_to_float(r.get("pct_chg_3m")),
-                    pct_chg_6m=_to_float(r.get("pct_chg_6m")), pct_chg_9m=_to_float(r.get("pct_chg_9m")),
-                    pct_chg_ytd=_to_float(r.get("pct_chg_ytd")), pct_chg_1y=_to_float(r.get("pct_chg_1y")),
+                    market_cap=_to_float(r.get("market_cap")),
+                    enterprise_value=_to_float(r.get("enterprise_value")),
+                    pe_ttm=_to_float(r.get("pe_ttm")),
+                    forward_pe=_to_float(r.get("forward_pe")),
+                    ps_ttm=_to_float(r.get("ps_ttm")),
+                    pb=_to_float(r.get("pb")),
+                    ev_ebitda=_to_float(r.get("ev_ebitda")),
+                    ev_ebit=_to_float(r.get("ev_ebit")),
+                    ev_fcf=_to_float(r.get("ev_fcf")),
+                    earnings_yield=_to_float(r.get("earnings_yield")),
+                    fcf_yield=_to_float(r.get("fcf_yield")),
+                    pct_chg_1w=_to_float(r.get("pct_chg_1w")),
+                    pct_chg_3m=_to_float(r.get("pct_chg_3m")),
+                    pct_chg_6m=_to_float(r.get("pct_chg_6m")),
+                    pct_chg_9m=_to_float(r.get("pct_chg_9m")),
+                    pct_chg_ytd=_to_float(r.get("pct_chg_ytd")),
+                    pct_chg_1y=_to_float(r.get("pct_chg_1y")),
                 )
                 for r in rows
             ]
@@ -1291,12 +1465,15 @@ class SQLMarketDataRepository(MarketDataRepository):
             logger.exception("get_valuation_indicators failed")
             raise DatabaseUnavailableError("Unable to fetch valuation indicators") from exc
 
-    def get_returns_snapshot(self, ticker: str, start: date | None = None, end: date | None = None, limit: int = 252) -> list[ReturnsDay]:
+    def get_returns_snapshot(
+        self, ticker: str, start: date | None = None, end: date | None = None, limit: int = 252
+    ) -> list[ReturnsDay]:
         try:
             where, params = self._date_range_params(ticker, start, end, limit)
-            rows = self._session.execute(
-                text(
-                    f"""
+            rows = (
+                self._session.execute(
+                    text(
+                        f"""
                     SELECT i.date, i.ret_1w, i.ret_1m, i.ret_3m, i.ret_6m, i.ret_9m, i.ret_ytd, i.ret_1y,
                            i.price_field, i.computed_at
                     FROM theeyebeta.returns_snapshot_daily i
@@ -1305,15 +1482,21 @@ class SQLMarketDataRepository(MarketDataRepository):
                     ORDER BY i.date DESC
                     LIMIT :limit
                     """  # noqa: S608
-                ),
-                params,
-            ).mappings().all()
+                    ),
+                    params,
+                )
+                .mappings()
+                .all()
+            )
             return [
                 ReturnsDay(
                     date=r["date"],
-                    ret_1w=_to_float(r.get("ret_1w")), ret_1m=_to_float(r.get("ret_1m")),
-                    ret_3m=_to_float(r.get("ret_3m")), ret_6m=_to_float(r.get("ret_6m")),
-                    ret_9m=_to_float(r.get("ret_9m")), ret_ytd=_to_float(r.get("ret_ytd")),
+                    ret_1w=_to_float(r.get("ret_1w")),
+                    ret_1m=_to_float(r.get("ret_1m")),
+                    ret_3m=_to_float(r.get("ret_3m")),
+                    ret_6m=_to_float(r.get("ret_6m")),
+                    ret_9m=_to_float(r.get("ret_9m")),
+                    ret_ytd=_to_float(r.get("ret_ytd")),
                     ret_1y=_to_float(r.get("ret_1y")),
                     price_field=str(r["price_field"]) if r.get("price_field") else None,
                     computed_at=_to_datetime(r.get("computed_at")),
@@ -1328,9 +1511,10 @@ class SQLMarketDataRepository(MarketDataRepository):
 
     def get_ticker_news(self, ticker: str, limit: int = 20) -> list[TickerNewsItem]:
         try:
-            rows = self._session.execute(
-                text(
-                    """
+            rows = (
+                self._session.execute(
+                    text(
+                        """
                     SELECT n.news_id, n.source, n.title, n.url, n.published_at,
                            n.summary, n.sentiment, n.sentiment_score
                     FROM theeyebeta.ticker_news n
@@ -1339,9 +1523,12 @@ class SQLMarketDataRepository(MarketDataRepository):
                     ORDER BY n.published_at DESC
                     LIMIT :limit
                     """
-                ),
-                {"ticker": ticker, "limit": limit},
-            ).mappings().all()
+                    ),
+                    {"ticker": ticker, "limit": limit},
+                )
+                .mappings()
+                .all()
+            )
             return [
                 TickerNewsItem(
                     news_id=int(r["news_id"]),
@@ -1363,9 +1550,10 @@ class SQLMarketDataRepository(MarketDataRepository):
 
     def get_etl_job_states(self) -> list[EtlJobState]:
         try:
-            rows = self._session.execute(
-                text(
-                    """
+            rows = (
+                self._session.execute(
+                    text(
+                        """
                     SELECT
                         sync_name AS job_name,
                         started_at AS last_run_at,
@@ -1375,8 +1563,11 @@ class SQLMarketDataRepository(MarketDataRepository):
                     FROM theeyebeta.provider_sync_runs
                     ORDER BY started_at DESC
                     """
+                    )
                 )
-            ).mappings().all()
+                .mappings()
+                .all()
+            )
             return [
                 EtlJobState(
                     job_name=str(r["job_name"]),
@@ -1393,9 +1584,10 @@ class SQLMarketDataRepository(MarketDataRepository):
 
     def get_engine_status(self) -> list[EngineStatusEntry]:
         try:
-            rows = self._session.execute(
-                text(
-                    """
+            rows = (
+                self._session.execute(
+                    text(
+                        """
                     SELECT
                         component_id AS key,
                         state AS value,
@@ -1403,8 +1595,11 @@ class SQLMarketDataRepository(MarketDataRepository):
                     FROM theeyebeta.trask_components
                     ORDER BY component_id
                     """
+                    )
                 )
-            ).mappings().all()
+                .mappings()
+                .all()
+            )
             return [
                 EngineStatusEntry(
                     key=str(r["key"]),
@@ -1419,9 +1614,10 @@ class SQLMarketDataRepository(MarketDataRepository):
 
     def get_price_ticks(self, ticker: str, limit: int = 100) -> list[PriceTick]:
         try:
-            rows = self._session.execute(
-                text(
-                    """
+            rows = (
+                self._session.execute(
+                    text(
+                        """
                     SELECT pt.tick_id, pt.ts, pt.price, pt.open, pt.high, pt.low, pt.close,
                            pt.volume, pt.source
                     FROM theeyebeta.price_ticks pt
@@ -1430,9 +1626,12 @@ class SQLMarketDataRepository(MarketDataRepository):
                     ORDER BY pt.ts DESC
                     LIMIT :limit
                     """
-                ),
-                {"ticker": ticker, "limit": limit},
-            ).mappings().all()
+                    ),
+                    {"ticker": ticker, "limit": limit},
+                )
+                .mappings()
+                .all()
+            )
             return [
                 PriceTick(
                     tick_id=int(r["tick_id"]),
@@ -1459,9 +1658,10 @@ class SQLMarketDataRepository(MarketDataRepository):
             params: dict[str, Any] = {"limit": limit}
             if sector:
                 params["sector"] = sector
-            rows = self._session.execute(
-                text(
-                    f"""
+            rows = (
+                self._session.execute(
+                    text(
+                        f"""
                     SELECT sector, as_of_date, n_instruments, avg_return_1d, avg_return_5d, avg_return_30d,
                            median_rsi_14, pct_above_sma_50, pct_above_sma_200, rel_strength_spx_30d,
                            rotation_rank, volume_ratio_20d, top_contributors
@@ -1470,9 +1670,12 @@ class SQLMarketDataRepository(MarketDataRepository):
                     ORDER BY as_of_date DESC, rotation_rank ASC NULLS LAST
                     LIMIT :limit
                     """  # noqa: S608
-                ),
-                params,
-            ).mappings().all()
+                    ),
+                    params,
+                )
+                .mappings()
+                .all()
+            )
             return [
                 SectorDaily(
                     sector=str(r["sector"]),
@@ -1497,9 +1700,10 @@ class SQLMarketDataRepository(MarketDataRepository):
 
     def get_universe_active(self, min_market_cap: float = 500_000_000, limit: int = 200) -> list[UniverseCapEntry]:
         try:
-            rows = self._session.execute(
-                text(
-                    """
+            rows = (
+                self._session.execute(
+                    text(
+                        """
                     SELECT symbol, as_of_date, market_cap, close_price, shares_outstanding, source
                     FROM (
                         SELECT DISTINCT ON (symbol)
@@ -1511,16 +1715,21 @@ class SQLMarketDataRepository(MarketDataRepository):
                     ORDER BY market_cap DESC
                     LIMIT :limit
                     """
-                ),
-                {"min_cap": min_market_cap, "limit": limit},
-            ).mappings().all()
+                    ),
+                    {"min_cap": min_market_cap, "limit": limit},
+                )
+                .mappings()
+                .all()
+            )
             return [
                 UniverseCapEntry(
                     symbol=str(r["symbol"]),
                     as_of_date=r["as_of_date"],
                     market_cap=float(r["market_cap"]),
                     close_price=_to_float(r.get("close_price")),
-                    shares_outstanding=int(r["shares_outstanding"]) if r.get("shares_outstanding") is not None else None,
+                    shares_outstanding=int(r["shares_outstanding"])
+                    if r.get("shares_outstanding") is not None
+                    else None,
                     source=str(r["source"]) if r.get("source") else None,
                 )
                 for r in rows
@@ -1535,9 +1744,10 @@ class SQLMarketDataRepository(MarketDataRepository):
             params: dict[str, Any] = {"limit": limit}
             if since:
                 params["since"] = since
-            rows = self._session.execute(
-                text(
-                    f"""
+            rows = (
+                self._session.execute(
+                    text(
+                        f"""
                     SELECT id, trade_date, symbol, event_type, market_cap, prior_market_cap,
                            action_required, universe_updated
                     FROM theeyebeta.audit_cap_events
@@ -1545,9 +1755,12 @@ class SQLMarketDataRepository(MarketDataRepository):
                     ORDER BY trade_date DESC, id DESC
                     LIMIT :limit
                     """  # noqa: S608
-                ),
-                params,
-            ).mappings().all()
+                    ),
+                    params,
+                )
+                .mappings()
+                .all()
+            )
             return [
                 CapEvent(
                     id=int(r["id"]),

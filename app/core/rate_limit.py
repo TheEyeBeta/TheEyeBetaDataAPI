@@ -48,9 +48,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self._redis_last_failure: float | None = None
 
         if settings.redis_url and redis is None:
-            logger.warning(
-                "REDIS_URL is set but redis package is not installed; using in-memory limiter"
-            )
+            logger.warning("REDIS_URL is set but redis package is not installed; using in-memory limiter")
         elif settings.redis_url and redis is not None:
             self._redis_client = self._make_redis_client()
 

@@ -56,7 +56,14 @@ def test_bootstrap_local_env_backup_is_owner_only(tmp_path: Path) -> None:
     )
     # Second run with --force triggers the backup-then-overwrite path.
     _run(
-        [str(script), "--database-url", "postgresql+psycopg://u:p@127.0.0.1:5432/db", "--environment", "development", "--force"],
+        [
+            str(script),
+            "--database-url",
+            "postgresql+psycopg://u:p@127.0.0.1:5432/db",
+            "--environment",
+            "development",
+            "--force",
+        ],
         cwd=tmp_path,
     )
 
@@ -69,7 +76,13 @@ def test_rotate_secrets_keeps_env_and_backup_owner_only(tmp_path: Path) -> None:
     shutil.copy(REPO_ROOT / ".env.example", tmp_path / ".env.example")
     bootstrap = REPO_ROOT / "scripts" / "bootstrap_local_env.py"
     _run(
-        [str(bootstrap), "--database-url", "postgresql+psycopg://u:p@127.0.0.1:5432/db", "--environment", "development"],
+        [
+            str(bootstrap),
+            "--database-url",
+            "postgresql+psycopg://u:p@127.0.0.1:5432/db",
+            "--environment",
+            "development",
+        ],
         cwd=tmp_path,
     )
 

@@ -57,5 +57,11 @@ def register_error_handlers(app: FastAPI) -> None:
         logger.exception("unhandled exception", exc_info=exc)
         return JSONResponse(
             status_code=500,
-            content={"error": {"code": "INTERNAL_SERVER_ERROR", "message": "Internal server error", "request_id": _request_id(request)}},
+            content={
+                "error": {
+                    "code": "INTERNAL_SERVER_ERROR",
+                    "message": "Internal server error",
+                    "request_id": _request_id(request),
+                }
+            },
         )
