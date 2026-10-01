@@ -66,7 +66,7 @@ flowchart LR
 | `theeyebeta` schema (prices, fundamentals, signals, macro, policy tables) | TheEyeBetaProd | Read-only |
 | `iam` schema (service clients, API keys, refresh tokens, audit log, users) | This repo (`deploy/iam_*.sql`) | Column-scoped writes; no deletes |
 | admin-service (MFA, RBAC, admin mutations) | TheEyeBetaProd | Proxied through an allowlist; identity is not interpreted here |
-| Cloudflare Tunnel config | This repo (`deploy/cloudflared-config.yml`) | Shared with other TheEyeBeta services (see debt item 1) |
+| Cloudflare Tunnel config | Operator; this repo declares only its own hostnames (`deploy/cloudflared-config.yml`) | Shared with Prod and Local; routing table in `docs/OWNERSHIP.md`, open decision DEBT-01 |
 
 ## Third-party dependencies
 

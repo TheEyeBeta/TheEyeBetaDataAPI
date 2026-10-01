@@ -1,139 +1,52 @@
 # Technical Debt Log
 
-What is known to be weak or unfinished, why it matters, and the plan. Ordered
-by risk. Last reviewed 2026-09-28 (repo audit and cleanup).
+Known weaknesses, what was done in this repository, and what is left. Last
+reviewed 2026-10-01 (production baseline, `docs/DATAAPI_BASELINE_2026-10-01.md`).
 
-Legend: **Risk** = what goes wrong if left alone. **Plan** = the concrete next step.
+Columns used for every item:
+
+- **Severity**: P0 (blocks a production claim), P1 (real risk to a product
+  gate), P2 (operational risk), P3 (hygiene).
+- **Repo fix**: what this repository already does about it.
+- **Remaining**: the next concrete action and who owns it.
+- **Host-verify**: whether only a read-only check on the production host can
+  prove the state.
+- **Cross-repo**: which other repository has to change, if any.
 
 ## Open
 
-### 1. Tunnel config contradicts the documented routing for `admin.theeyebeta.store` — *Critical, decision needed*
-- `AGENTS.md`, `README.md` and `docs/TUNNEL_RUNBOOK.md` say the hostname routes
-  to the hosted terminal on `127.0.0.1:8080` and must not be repointed to
-  `7200`. The committed `deploy/cloudflared-config.yml` (and the
-  `scripts/fix_tunnel.sh` summary) still route it to admin-service on `:7200`.
-- **Risk:** `sync_tunnel.sh` pushes the committed file to Cloudflare as remote
-  ingress, and `watchdog_all.sh` runs it automatically when the tunnel looks
-  unhealthy. The next run could expose admin-service directly on the public
-  hostname, or undo whatever the live tunnel does today.
-- **Plan:** check what the live tunnel serves (`cloudflared tunnel info`, the
-  Cloudflare dashboard), then make the file and the docs agree in one commit.
-  This was deliberately *not* changed in the cleanup, because the live state
-  can't be seen from the repo.
+| ID | Item | Sev | Repo fix done | Remaining | Host-verify | Cross-repo |
+|---|---|---|---|---|---|---|
+| DEBT-01 | `admin.theeyebeta.store` origin undecided | P0 (decision) | Config mirrors Prod's declared `:7200`; the `:8080` claims removed from docs; tunnel scripts refuse to apply without `TUNNEL_CHANGE_APPROVED=yes`; watchdog no longer pushes tunnel config; `tests/test_tunnel_routing.py` | Operator + Prod choose: page-only origin (`:8080` host with a unit, or a Cloudflare path rule for `/admin/terminal/`) or written acceptance of public admin-service | Yes: live ingress | TheEyeBetaProd (C7), AdminFrontend (`server.mjs` unit) |
+| DEBT-02 | Repository is **public**; `LICENSE` says proprietary and confidential | P0 (owner decision) | gitleaks over full history: no real secrets (11 placeholder hits, allowlisted narrowly); secret scan now gates CI | Owner confirms intent. If unintended, make private; the repo still exposes tunnel UUID, host user path, client IDs and ops detail | No | No |
+| DEBT-04 | 10 `theeyebeta` tables + `latest_snapshots.eps` exist only on the host; no Prod migration creates them | P1 | Listed in `contracts/prod/host_only_tables.txt`; shapes DataAPI needs are declared in `host_only_assumed.sql` and contract-tested (proves DataAPI SQL vs its own assumption only) | Prod adds migrations for them (or DataAPI stops reading them); until then compare `\d` on the host with `host_only_assumed.sql` | Yes | TheEyeBetaProd |
+| DEBT-05 | Live DB role for DataAPI unconfirmed; Prod contract C3 (market-data grants) open | P1 | `db_security.sql` creates `api_service` (no superuser/createrole/bypassrls), membership in Prod's `api_readonly`, explicit SELECT allowlist; fails if `api_readonly` is missing; privilege boundaries tested on Postgres 16 | Operator: check `DATABASE_URL` user and `\du`/`\dp` on the host, then apply `db_security.sql`. Prod: own C3 grants | Yes | TheEyeBetaProd (C3) |
+| DEBT-06 | Lens calls 4 routes it has no scope for | P1 | Pinned in `tests/contract` (`LENS_SCOPE_GAP` → 403): analytics snapshot, ticker fundamentals, financials, technical indicators need `analytics:read`, which `ai-advisor-production` does not hold per the 2026-09-15 inventory | Decide: grant `analytics:read` to `ai-advisor-production` (IAM row change, operator) or remove those calls from Lens. No scope was changed here | Yes: live scopes | AI-Financial-Advisor |
+| DEBT-07 | `JWT_REQUIRE_ISS_AUD` on the host | P2 | Code default is `true`; all four consumers verified to send DataAPI-minted tokens (which carry `iss`/`aud`); suite runs enforced; compatibility tests | Remove any `JWT_REQUIRE_ISS_AUD=false` from the host `.env` at next deploy; run Lens + Admin smoke | Yes | No |
+| DEBT-13 | DataAPI alert rules are not loaded anywhere | P2 | Rules validated by `promtool` and `tests/test_prometheus_rules.py` (metrics exported, handlers exist); `/metrics` restricted to direct local scrapes | Prod's `infra/prometheus/prometheus.yml` has no `dataapi` scrape job and does not load `dataapi_auth.yml`: add both in Prod, fire one test alert | Yes | TheEyeBetaProd |
+| DEBT-16 | `theeyebeta.latest_snapshots` table is created outside Alembic (Prod worker) | P2 | Contract snapshot models it from Prod's own test DDL. Prod migration 0079's docstring says the host table has 72 columns; the worker model writes 40 | Prod moves the table into a migration so its shape is versioned | Yes | TheEyeBetaProd |
+| DEBT-03 | Single production host, no staging tier | P2 | Deploy now: tested SHA only, DB-aware health, automatic rollback, post-deploy Admin E2E | Document backup + tested restore (incl. `iam`), separate staging `.env`/DB | Yes | No |
+| DEBT-17 | Deploy job host assumptions | P2 | `deploy.sh` fails closed if the `--user` unit is not visible | Confirm on the runner host: `XDG_RUNTIME_DIR=/run/user/1000` matches the service user, `ADMIN_GATEWAY_ENABLED=true` (else the post-deploy Admin E2E fails by design) | Yes | No |
+| DEBT-08 | `trades:write` / `internal:jobs` seeded but no route checks them | P3 | None (scopes are not removed without consumer proof) | Confirm TheEyeBetaLocal (`trade-engine`, requests `[]`) does not depend on them, then revoke | Yes | TheEyeBetaLocal |
+| DEBT-12 | Host-specific paths | P3 | Local coupling now opt-in via `THEEYE_LOCAL_REPO` (fails fast on a bad path) | `scripts/provision_integrations.sh` hard-codes `/home/the-eye-beta/...`; tunnel credentials path in `deploy/cloudflared-config.yml` | No | No |
+| DEBT-09 | Oversized modules | P3 | Contract tests now cover the SQL, so a split has a safety net | Split `sql_market_data.py` (~1,570 lines) by domain; serve the dashboard HTML from a template | No | No |
+| DEBT-10 | Deferred dependency majors | P3 | `pip-audit` clean (runtime + dev) and gating | SQLAlchemy 2.1, openai 3.x, redis 8.x one at a time; Starlette test client warns `httpx` → `httpx2` | No | No |
+| DEBT-14 | Bus factor of one | P3 | Runbooks, ownership matrix (`docs/OWNERSHIP.md`), CI gates encode the contracts | Quarterly fresh-machine setup from the README | No | No |
+| DEBT-18 | 1 MB image (`the_eye_80s.png`) in git history | P3 | Not in the tree | None unless repo size matters; history is not rewritten | No | No |
 
-### 2. Single production host, no staging tier — *Major*
-- API, PostgreSQL, admin-service, CI runner, tunnel and monitoring share one
-  machine. There is a staging IAM database on it (`TheEyeBetaDataAPI`) but no
-  separate staging API. Pushes to `main` deploy straight to production.
-- **Risk:** one hardware or OS failure takes every product down. There is no
-  documented recovery time or recovery point.
-- **Plan:** (a) record the backup job, retention and a tested restore in
-  `OPS_HARDENING.md`, including the `iam` schema; (b) give staging its own
-  `.env` (`--environment staging`) and database; (c) when revenue justifies
-  it, move PostgreSQL to a managed instance.
+## Resolved
 
-### 3. Bus factor of one — *Major*
-- One person has written and operates everything.
-- **Mitigations now in place:** 5-minute quickstart, runbooks, `CODEOWNERS`,
-  CI lint/audit/integration jobs, and Postgres integration tests that encode
-  the IAM contract.
-- **Plan:** keep `AGENTS.md` and the runbooks current as part of every change
-  (the `readme-sync` skill), and do a "fresh machine" setup from the README
-  once a quarter.
-
-### 4. Market-data SQL is only tested against mocks — *Major*
-- The `theeyebeta` schema is owned by TheEyeBetaProd; this repo has no copy of
-  its DDL. `sql_market_data.py`, `sql_macro.py` and `sql_fixed_income.py` sit
-  at 20–35% line coverage. The policy SQL (`theeyebeta.dataapi_*`) is unit-tested
-  for its decisions, not against real tables.
-- **Risk:** a column rename in a Prod migration ships green here and fails at
-  runtime (`503 DATABASE_UNAVAILABLE`) for Lens.
-- **Plan:** publish a schema-only snapshot of `theeyebeta` from Prod (e.g.
-  `pg_dump --schema-only`) as a CI artifact, and add a contract job that runs
-  every repository query against it with `EXPLAIN`.
-
-### 5. Production database role not confirmed against the new grants — *Major*
-- `deploy/db_security.sql` now defines a verified least-privilege `api_service`
-  role. The previous file's `api_readonly` role (public schema only) could not
-  run this API, and the repo doesn't record which role production connects as.
-  `api_service` may already exist on the host with grants applied by hand.
-- **Risk:** if production connects as an owner or superuser, a compromised API
-  process has full database control.
-- **Plan:** compare live grants (`\dp iam.*`, `\dp theeyebeta.*`) with
-  `db_security.sql`, apply it (idempotent), point `DATABASE_URL` at
-  `api_service`, smoke Lens and Admin, then drop `api_readonly` if it exists.
-
-### 6. `JWT_REQUIRE_ISS_AUD` still `false` — *Minor, now unblocked*
-- Every open question in `IAM_CONSUMER_INVENTORY.md` §7 is closed, and service
-  tokens already carry `iss`/`aud`.
-- **Plan:** set `JWT_REQUIRE_ISS_AUD=true`, then run the Lens and Admin smoke
-  tests in `E2E_VERIFICATION.md`.
-
-### 7. Unused legacy IAM grants — *Minor*
-- `trades:write` and `internal:jobs` are still seeded by
-  `deploy/iam_api_key_schema.sql` and `scripts/provision_integrations.sh` for
-  `trade-engine`/`admin-tool`. No route checks them.
-- **Plan:** confirm TheEyeBetaLocal no longer requests them, revoke them in
-  `iam.service_client_scopes`, and drop them from the seed.
-
-### 8. Refresh-token reuse rejects but does not revoke the family — *Minor*
-- A replayed refresh token gets `401`, but the token that replaced it stays
-  valid. Current practice is to revoke the whole chain on reuse.
-- Low exposure today: refresh is opt-in and no product client has it enabled.
-- **Plan:** follow `replaced_by` and revoke descendants on reuse before any
-  client enables refresh.
-
-### 9. Oversized modules — *Minor*
-- `app/repositories/sql_market_data.py` (~1,570 lines) mixes a dozen domains.
-  `app/api/routes/admin_dashboard_html.py` is a 930-line HTML string.
-- **Plan:** split the repository by domain (quotes, fundamentals, indicators,
-  reference, admin) behind the existing interfaces, and serve the dashboard
-  from a static template. Do this after #4, so the split has a safety net.
-
-### 10. Deferred dependency majors — *Minor*
-- Held back on purpose: SQLAlchemy 2.1, openai 3.x, redis 8.x. Dependabot is
-  configured to skip majors. Starlette's test client now warns that `httpx`
-  support is deprecated in favor of `httpx2`.
-- **Plan:** upgrade one at a time, using the same method as the Sept 2026
-  FastAPI/Starlette upgrade: full suite, recorded-response diff, live
-  gunicorn smoke.
-
-### 11. Host-specific paths and sibling-repo coupling in scripts — *Minor*
-- `scripts/provision_integrations.sh` hard-codes `/home/the-eye-beta/...`.
-  `start_all_native.sh` and `watchdog_all.sh` drive `../TheEyeBetaLocal`. The
-  tunnel config pins a credentials path.
-- **Plan:** read paths from environment variables with the current values as
-  defaults, and keep cross-repo orchestration out of this repo long term.
-
-### 12. Tooling gaps — *Minor*
-- No autoformatter (ruff `E501` is ignored to avoid a whole-repo reformat) and
-  no static type checking.
-- The `deploy` job waits only on `test`, not on `integration`/`lint`/`audit`.
-- **Plan:** adopt `ruff format` in one isolated commit, add `mypy` on
-  `app/auth` and `app/core` first, and make `deploy` depend on all checks.
-
-### 13. Alert rules are committed but may not be live — *Minor*
-- `/metrics` is exposed and `deploy/prometheus/rules/dataapi_auth.yml` defines
-  three auth alerts. But per the 2026-09-14 host probe in `OPS_HARDENING.md`,
-  the live Prometheus loads TheEyeBetaProd's config, not this repo's, and
-  Grafana was unhealthy.
-- **Risk:** an auth-failure spike or a token-endpoint outage goes unnoticed.
-- **Plan:** add this repo's rule file to the live Prometheus config, send one
-  test alert end-to-end, and record where alerts are delivered.
-
-## Resolved in the 2026-09 cleanup
-
-| Item | Resolution |
+| Item | Resolution (2026-10-01 unless noted) |
 |---|---|
-| 28 known advisories (Starlette, PyJWT, python-dotenv) | Upgraded; `pip-audit` clean and enforced in CI |
-| FastAPI upgrade would have broken every route (metrics middleware) | Upgraded `prometheus-fastapi-instrumentator` alongside it |
-| New FastAPI would leak server file paths in 422 bodies | Handler returns `str(exc.errors())`, identical to the old format |
-| Admin gateway duplicated `X-Request-ID` | Header keys normalized; regression test |
-| Advisor chat returned 500 without OpenAI | Fallback returns a string; regression test |
-| `db_security.sql` role could not run the API | Rewritten least-privilege `api_service`, verified on Postgres 16 |
-| Local-dev bootstrap silently produced a production `.env` | `--environment` is required |
-| Production CORS origins applied in every environment | Production only |
-| JWT keys allowed down to 24 bytes | ≥ 32 bytes (RFC 7518) |
-| Stale/contradictory docs (`agent.md`, `OTHEREND_TEST.md`, missing routes) | Removed or replaced; API reference complete |
-| No lint, no license, no dependency automation | ruff, pip-audit, Dependabot, CODEOWNERS, LICENSE |
-| Grafana `changeme` default password | Compose refuses to start without `GRAFANA_ADMIN_PASSWORD` |
+| Market-data SQL tested only against mocks (old #4) | `prod-contract` CI job runs every data route as `api_service` against TheEyeBetaProd's schema at `contracts/prod/PROD_SHA` |
+| Refresh reuse did not revoke the family (old #8) | Reuse revokes all descendants; refresh needs the issuing client's credentials; client/subject mismatch revokes; concurrency tested on Postgres |
+| `JWT_REQUIRE_ISS_AUD=false` default (old #6) | Default `true`; host part tracked as DEBT-07 |
+| Watchdog could overwrite the shared tunnel (part of old #1) | Alert-only; tunnel scripts approval-gated |
+| Sibling-repo coupling `../TheEyeBetaLocal` (part of old #11) | `THEEYE_LOCAL_REPO` opt-in, fail fast |
+| No formatter, no type checking, deploy gated only on `test` (old #12) | `ruff format --check`, `mypy app/`, gitleaks, promtool; deploy needs every job (`tests/test_ci_gates.py`) |
+| `deploy.sh` silent tmux fallback, deployed `origin/main` not the tested SHA, health ignored DB, no rollback | Fixed; `tests/test_deploy_script.py` |
+| Admin gateway exposed methods Prod does not implement; path re-targeting via encoded characters | Manifest equals Prod's routes minus deliberate denials (`contracts/prod/admin_route_families.json`); forbidden characters and dot segments refused |
+| Named-query DB errors returned SQL text; 422 echoed submitted values | Generic messages; regression tests |
+| `/metrics` reachable through the public tunnel | Direct scrapes from `METRICS_ALLOWED_NETWORKS` only |
+| Undocumented `/api/v1/context`, `/api/v1/chat`; wrong cap-events sample | Docs fixed; `tests/test_docs_openapi_sync.py` |
+| 28 dependency advisories, FastAPI/Starlette upgrade, 422 path leak, CORS/env separation, JWT key length, LICENSE, Dependabot (2026-09) | See git history of this file |
