@@ -247,3 +247,38 @@ def test_generic_rows_ticker_id_symbol_clause_runs_on_prod_schema(contract_env) 
     finally:
         session.close()
     assert ids == [101]
+
+
+# --------------------------------------------------------------------------
+# The post-deploy Admin E2E script (scripts/e2e_admin_smoke.py), including the
+# authenticated bridge hop, on Prod's schema. admin-service is mocked (401).
+# --------------------------------------------------------------------------
+
+
+def test_admin_e2e_smoke_passes_on_prod_schema(client, contract_env, monkeypatch) -> None:
+    import io
+
+    import httpx
+
+    from app.api.routes import admin_gateway
+    from app.core.config import settings
+    from tests.test_e2e_admin_smoke import load_smoke
+
+    real = httpx.AsyncClient
+    monkeypatch.setattr(settings, "admin_gateway_enabled", True)
+    monkeypatch.setattr(settings, "admin_service_url", "http://127.0.0.1:7200")
+    monkeypatch.setattr(
+        admin_gateway.httpx,
+        "AsyncClient",
+        lambda **kw: real(transport=httpx.MockTransport(lambda request: httpx.Response(401)), **kw),
+    )
+    bridge = contract_env.admin_bridge
+    out = io.StringIO()
+    ok = load_smoke().run(
+        client,
+        environ={"ADMIN_BRIDGE_CLIENT_ID": bridge.client_id, "ADMIN_BRIDGE_CLIENT_SECRET": bridge.secret},
+        out=out,
+    )
+    assert ok, out.getvalue()
+    assert "[PASS] bridge engine status" in out.getvalue()
+    assert "SKIP" not in out.getvalue()

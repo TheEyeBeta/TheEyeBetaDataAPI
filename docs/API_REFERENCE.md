@@ -1351,9 +1351,12 @@ Symbols crossing universe market-cap thresholds.
 | `since` | date | No | — | Inclusive |
 | `limit` | integer | No | `100` | 1–1000 |
 
+`event_type` is `CROSSED_UP` or `CROSSED_DOWN` (CHECK constraint in
+TheEyeBetaProd migration 0018).
+
 ```json
-{"events": [{"id": 1, "trade_date": "2026-06-20", "symbol": "NEWCO", "event_type": "entered_universe",
-  "market_cap": null, "prior_market_cap": null, "action_required": null, "universe_updated": true}]}
+{"events": [{"id": 1, "trade_date": "2026-06-20", "symbol": "NEWCO", "event_type": "CROSSED_UP",
+  "market_cap": 2150000000.0, "prior_market_cap": null, "action_required": "add", "universe_updated": true}]}
 ```
 
 ---
