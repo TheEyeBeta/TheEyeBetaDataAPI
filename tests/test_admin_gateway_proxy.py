@@ -147,3 +147,39 @@ def test_request_id_is_generated_when_client_sends_none(upstream) -> None:
     (sent,) = upstream["calls"]
     assert len(sent.headers.get_list("x-request-id")) == 1
     assert sent.headers["x-request-id"]
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/admin/audit/%2e%2e/sql/execute",
+        "/admin/audit/%252e%252e/sql/execute",
+        "/admin/audit/..%2fsql/execute",
+        "/admin/audit/x%5c..%5csql",
+        "/admin/audit//log",
+        "/admin/audit/%00log",
+        "/admin/audit/%25",
+    ],
+)
+def test_encoded_traversal_and_odd_paths_never_reach_upstream(upstream, path: str) -> None:
+    response = TestClient(app).get(path)
+    assert response.status_code == 404
+    assert upstream["calls"] == []
+
+
+def test_encoded_query_and_fragment_characters_stay_in_the_path_segment(upstream) -> None:
+    response = TestClient(app).get("/admin/orders/a%3Fstatus%3Dall%23x")
+    assert response.status_code == 200
+    (sent,) = upstream["calls"]
+    assert sent.url.raw_path == b"/admin/orders/a%3Fstatus%3Dall%23x"
+    assert sent.url.query == b""
+
+
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [("PUT", "/admin/orders/1"), ("PATCH", "/admin/services/x"), ("DELETE", "/admin/workers/x"), ("GET", "/admin/events/stream")],
+)
+def test_methods_and_families_prod_does_not_serve_are_refused(upstream, method: str, path: str) -> None:
+    response = TestClient(app).request(method, path, headers={"X-Idempotency-Key": "k"})
+    assert response.status_code == 404
+    assert upstream["calls"] == []
