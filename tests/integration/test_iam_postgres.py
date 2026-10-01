@@ -5,6 +5,7 @@ from __future__ import annotations
 import secrets
 from datetime import UTC, datetime, timedelta
 
+import psycopg
 import pytest
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
@@ -229,20 +230,80 @@ def test_auth_audit_row_is_written_as_api_service(
 @pytest.mark.parametrize(
     "statement",
     [
+        # iam: no deletes, no identity edits, no self-granted scopes
         "DELETE FROM iam.users WHERE false",
         "UPDATE iam.users SET email = email WHERE false",
         "INSERT INTO iam.service_client_scopes (client_uuid, scope) VALUES (gen_random_uuid(), 'admin:*')",
         "UPDATE iam.service_clients SET is_active = true WHERE false",
         "TRUNCATE iam.auth_audit_log",
-        "INSERT INTO theeyebeta.instruments VALUES (2, 'X')",
+        # theeyebeta (Prod-owned): read-only, no DDL, no policy writes
+        "INSERT INTO theeyebeta.prices_daily (instrument_id, ts, open, high, low, close, volume, source)"
+        " VALUES (1, now(), 1, 1, 1, 1, 1, 'x')",
+        "UPDATE theeyebeta.instruments SET symbol = symbol WHERE false",
+        "DELETE FROM theeyebeta.market_news WHERE false",
+        "TRUNCATE theeyebeta.audit_log",
+        "UPDATE theeyebeta.dataapi_locks SET active = false WHERE false",
+        "INSERT INTO theeyebeta.dataapi_credential_revocations (token_id, expires_at) VALUES ('x', now())",
         "CREATE TABLE theeyebeta.escalation (id int)",
+        "ALTER TABLE theeyebeta.instruments ADD COLUMN pwned int",
+        "DROP TABLE theeyebeta.market_news",
+        "CREATE TABLE iam.escalation (id int)",
+        # Prod-internal objects outside the allowlist stay invisible
+        "SELECT 1 FROM theeyebeta.signals LIMIT 1",
+        "SELECT 1 FROM theeyebeta.prices_intraday LIMIT 1",
+        # no role or privilege escalation
+        "SET ROLE postgres",
+        "ALTER ROLE api_service SUPERUSER",
+        "CREATE ROLE escalation LOGIN",
     ],
 )
 def test_api_service_privilege_boundary(app_session: Session, statement: str) -> None:
-    with pytest.raises(ProgrammingError, match="permission denied"):
+    with pytest.raises(ProgrammingError) as denied:
         app_session.execute(text(statement))
     app_session.rollback()
+    assert isinstance(denied.value.orig, psycopg.errors.InsufficientPrivilege), denied.value
 
 
-def test_api_service_can_read_theeyebeta(app_session: Session) -> None:
-    assert app_session.execute(text("SELECT symbol FROM theeyebeta.instruments WHERE id = 1")).scalar_one() == "AAPL"
+@pytest.mark.parametrize(
+    "table",
+    ["instruments", "prices_daily", "market_news", "latest_snapshots", "fundamentals", "audit_log"],
+)
+def test_api_service_reads_allowlisted_market_tables(app_session: Session, table: str) -> None:
+    app_session.execute(text(f"SELECT 1 FROM theeyebeta.{table} LIMIT 1"))
+
+
+@pytest.mark.parametrize(
+    "table",
+    ["dataapi_locks", "dataapi_credential_revocations", "dataapi_entitlements", "dataapi_applications"],
+)
+def test_api_service_reads_policy_tables_through_prod_api_readonly(
+    owner_engine: Engine, app_session: Session, table: str
+) -> None:
+    app_session.execute(text(f"SELECT 1 FROM theeyebeta.{table} LIMIT 1"))
+    # The access comes from membership in Prod's role, not a DataAPI grant.
+    direct = _owner_row(
+        owner_engine,
+        "SELECT count(*) AS n FROM information_schema.role_table_grants "
+        "WHERE grantee = 'api_service' AND table_schema = 'theeyebeta' AND table_name = :t",
+        t=table,
+    )
+    assert direct == {"n": 0}
+
+
+def test_api_service_is_not_owner_or_superuser(owner_engine: Engine) -> None:
+    row = _owner_row(
+        owner_engine,
+        "SELECT rolsuper, rolcreaterole, rolcreatedb, rolbypassrls, "
+        "pg_has_role('api_service', 'api_readonly', 'MEMBER') AS in_api_readonly, "
+        "(SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+        " WHERE n.nspname IN ('theeyebeta', 'iam') AND pg_get_userbyid(c.relowner) = 'api_service') AS owned "
+        "FROM pg_roles WHERE rolname = 'api_service'",
+    )
+    assert row == {
+        "rolsuper": False,
+        "rolcreaterole": False,
+        "rolcreatedb": False,
+        "rolbypassrls": False,
+        "in_api_readonly": True,
+        "owned": 0,
+    }
