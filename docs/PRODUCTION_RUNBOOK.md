@@ -149,7 +149,7 @@ journalctl --user -u theeyebeta-dataapi -f
 ## 4) Cloudflare Tunnel
 
 Ingress config: [`deploy/cloudflared-config.yml`](../deploy/cloudflared-config.yml).
-The tunnel is shared with TheEyeBetaProd (admin hostname) and TheEyeBetaLocal
+The tunnel is shared with TheEyeBetaAdminFrontend (admin hostname, target) and TheEyeBetaLocal
 (`api.*`); the routing table and owners are in [`OWNERSHIP.md`](OWNERSHIP.md).
 
 Tunnel changes are operator actions only. `scripts/fix_tunnel.sh` (installs
@@ -157,8 +157,10 @@ Tunnel changes are operator actions only. `scripts/fix_tunnel.sh` (installs
 Cloudflare remote ingress) print their plan and exit 2 unless
 `TUNNEL_CHANGE_APPROVED=yes` is set. `start_all_native.sh` and
 `watchdog_all.sh` never touch the tunnel; the watchdog only logs an ALERT when
-the public health probe fails. Resolve DEBT-01 (`admin.theeyebeta.store`
-origin) before approving any change. Full guide: [`TUNNEL_RUNBOOK.md`](TUNNEL_RUNBOOK.md).
+the public health probe fails. The config routes `admin.theeyebeta.store` to
+the AdminFrontend terminal host on `:8080` (DEBT-01 target); the scripts refuse
+(exit 3) until `http://127.0.0.1:8080/healthz` is healthy. Do not apply before
+the AdminFrontend `:8080` unit is in place. Full guide: [`TUNNEL_RUNBOOK.md`](TUNNEL_RUNBOOK.md).
 
 ## 5) Verification checklist
 

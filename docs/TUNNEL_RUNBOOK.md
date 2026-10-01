@@ -15,7 +15,7 @@ cloudflared tunnel "my-api"  (systemd: cloudflared.service) — SHARED
    │
    ├── dataapiprod.theeyebeta.store → 127.0.0.1:7000  TheEyeBetaDataAPI (canonical)
    ├── dataapi.theeyebeta.store     → 127.0.0.1:7000  TheEyeBetaDataAPI (legacy alias)
-   ├── admin.theeyebeta.store       → 127.0.0.1:7200  TheEyeBetaProd admin-service (DEBT-01)
+   ├── admin.theeyebeta.store       → 127.0.0.1:8080  TheEyeBetaAdminFrontend static terminal host (target; DEBT-01)
    └── api.theeyebeta.store         → 127.0.0.1:8000  TheEyeBetaLocal main API
 ```
 
@@ -27,11 +27,13 @@ in agreement.
 - The terminal (browser and Tauri) sends every API call to
   `dataapiprod.theeyebeta.store`; `/admin/*` there goes through DataAPI's
   allowlisted gateway to admin-service on loopback `:7200`.
-- `admin.theeyebeta.store → :7200` is what TheEyeBetaProd declares (its
-  contract C7). That publishes admin-service's whole API, not just the page.
-  Earlier versions of this runbook said `:8080` (AdminFrontend `server.mjs`,
-  which has no service unit in any repo). **Which origin is live is unverified
-  and the intended one is an open decision (DEBT-01, operator + Prod).**
+- `admin.theeyebeta.store → :8080` (AdminFrontend `server.mjs`, page only) is
+  the decided target (DEBT-01, 2026-10-01). admin-service on `:7200` is never a
+  tunnel origin: routing a hostname to it would bypass the DataAPI gateway.
+- The tree above is the **target**, not a statement of what is live. TheEyeBetaProd
+  still declares `admin → :7200` (C7), and `:8080` has no proven production
+  unit yet. **Do not apply the config until
+  `curl -sf http://127.0.0.1:8080/healthz` returns `{"ok":true,...}` on the host.**
 
 **Do not use Docker** for these app ports. Old containers (`theeyebeta-dataapi`, `theeyebeta-api-dev`, nginx on `:80`) are obsolete and will break the tunnel if left running.
 
@@ -45,11 +47,14 @@ replaces the routing for **all** of them, so:
   fails, the watchdog writes an `ALERT` line to `.runtime-logs/watchdog.log`
   and nothing else.
 - `scripts/fix_tunnel.sh` and `scripts/sync_tunnel.sh` print the ingress they
-  would apply and exit 2 unless `TUNNEL_CHANGE_APPROVED=yes` is set.
+  would apply and exit 2 unless `TUNNEL_CHANGE_APPROVED=yes` is set. With
+  approval they still exit 3, changing nothing, while
+  `http://127.0.0.1:8080/healthz` (`ADMIN_TERMINAL_HEALTH_URL`) is not healthy.
 - Before approving: confirm the live routing (Cloudflare dashboard or
   `cloudflared tunnel info my-api`), get agreement from the owner of every
-  hostname whose origin would change, and resolve DEBT-01 if the admin row
-  differs from what is live.
+  hostname whose origin would change (Prod must update its C7 declaration for
+  the admin hostname), and confirm the `:8080` terminal host runs under a
+  production unit.
 
 Source of truth for DataAPI's hostnames: [`deploy/cloudflared-config.yml`](../deploy/cloudflared-config.yml).
 Installed copy (requires sudo): `/etc/cloudflared/config.yml`.

@@ -1,20 +1,34 @@
 # Cloudflare Tunnel ingress for the shared `my-api` tunnel (native, no Docker).
 #
+# ###########################################################################
+# DO NOT APPLY until the AdminFrontend :8080 health check passes:
+#     curl -sf http://127.0.0.1:8080/healthz   -> {"ok":true,...}
+# The :8080 static terminal host has no proven production systemd unit yet
+# (pending the TheEyeBetaAdminFrontend audit). Applying this file before then
+# takes admin.theeyebeta.store down. scripts/sync_tunnel.sh and
+# scripts/fix_tunnel.sh enforce this: they refuse without
+# TUNNEL_CHANGE_APPROVED=yes AND refuse while that health check fails.
+# ###########################################################################
+#
+# This file is the TARGET architecture (DEBT-01 decided 2026-10-01 by the
+# operator), not a record of what is live:
+#   admin.theeyebeta.store              -> 127.0.0.1:8080  AdminFrontend static
+#                                          terminal host (server.mjs; page only)
+#   dataapiprod.theeyebeta.store/admin/* -> DataAPI :7000 allowlisted gateway
+#                                          -> Prod admin-service 127.0.0.1:7200
+# admin-service (:7200) is deliberately NOT a tunnel origin: routing a hostname
+# to it bypasses the DataAPI gateway and publishes routes the gateway denies.
+#
 # OWNERSHIP (docs/OWNERSHIP.md): the tunnel is shared infrastructure owned by
-# the operator. This file is authoritative ONLY for the TheEyeBetaDataAPI
-# hostnames (dataapiprod / dataapi -> 127.0.0.1:7000). The other entries mirror
-# what their owners declare and must match them:
-#   admin.theeyebeta.store -> TheEyeBetaProd (infra/cloudflared/apply-p-net-01.sh,
-#                             docs/architecture/ownership-and-contracts.md C7)
-#   api.theeyebeta.store   -> TheEyeBetaLocal
-# OPEN DECISION DEBT-01 (docs/TECH_DEBT.md): Prod declares admin -> :7200
-# (admin-service API + terminal bundle, publicly reachable), while Prod ADR 0017
-# and TheEyeBetaAdminFrontend intend DataAPI's /admin/* gateway to be the single
-# remote admin origin. Live routing is host-verify only.
+# the operator. dataapiprod / dataapi are DataAPI's; api.theeyebeta.store is
+# TheEyeBetaLocal's; admin.theeyebeta.store serves TheEyeBetaAdminFrontend.
+# TheEyeBetaProd still declares admin -> :7200 (C7, infra/cloudflared/
+# apply-p-net-01.sh) and must be updated to match before activation.
 #
 # Applying this file replaces the WHOLE tunnel ingress. Operator action only:
 #   sudo TUNNEL_CHANGE_APPROVED=yes bash scripts/fix_tunnel.sh   (or sync_tunnel.sh)
-# tests/test_tunnel_routing.py keeps this file, the docs and the scripts aligned.
+# Watchdog and start scripts never apply it. tests/test_tunnel_routing.py keeps
+# this file, the docs and the scripts aligned.
 tunnel: 2e9c4dad-0800-4ae1-a9a7-3fb6e169d8b7
 credentials-file: /home/the-eye-beta/.cloudflared/2e9c4dad-0800-4ae1-a9a7-3fb6e169d8b7.json
 
@@ -28,8 +42,9 @@ ingress:
   - hostname: dataapiprod.theeyebeta.store
     service: http://127.0.0.1:7000
 
+  # TARGET, not yet live: see the DO NOT APPLY note at the top.
   - hostname: admin.theeyebeta.store
-    service: http://127.0.0.1:7200
+    service: http://127.0.0.1:8080
     originRequest:
       connectTimeout: 30s
 

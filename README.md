@@ -207,7 +207,7 @@ Public hostnames (config [`deploy/cloudflared-config.yml`](deploy/cloudflared-co
 | `dataapiprod.theeyebeta.store` | `127.0.0.1:7000` | This API (canonical) |
 | `dataapi.theeyebeta.store` | `127.0.0.1:7000` | This API (legacy alias) |
 | `api.theeyebeta.store` | `127.0.0.1:8000` | TheEyeBetaLocal main API |
-| `admin.theeyebeta.store` | `127.0.0.1:7200` | TheEyeBetaProd admin-service (terminal page + its API) — declared by Prod; **open decision DEBT-01**, see [`docs/OWNERSHIP.md`](docs/OWNERSHIP.md) |
+| `admin.theeyebeta.store` | `127.0.0.1:8080` | TheEyeBetaAdminFrontend static terminal host (page only). Target decided in DEBT-01; **not yet activated** — the config must not be applied until `:8080` passes its health check, see [`docs/OWNERSHIP.md`](docs/OWNERSHIP.md) |
 
 ## Repository layout
 

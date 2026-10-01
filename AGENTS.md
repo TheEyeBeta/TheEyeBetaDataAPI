@@ -70,12 +70,15 @@ packages/   TypeScript client for the API
 Canonical routing table and ownership: `docs/OWNERSHIP.md`. Facts that are
 easy to get wrong:
 
-- `admin.theeyebeta.store` → `127.0.0.1:7200` (Prod admin-service) is what
-  TheEyeBetaProd declares (its contract C7) and what
-  `deploy/cloudflared-config.yml` mirrors. Earlier docs here claimed `:8080`;
-  no repository proves which is live. This is **open decision DEBT-01**
-  (operator + Prod) — do not repoint it in either direction from this repo, and
-  do not claim the live value without host evidence.
+- Target (DEBT-01, decided by the operator 2026-10-01):
+  `admin.theeyebeta.store` → `127.0.0.1:8080`, the TheEyeBetaAdminFrontend
+  static terminal host. Prod admin-service (`:7200`) must **never** be a tunnel
+  origin: that would bypass the DataAPI gateway and publish routes it denies.
+  `deploy/cloudflared-config.yml` holds this target but is **not applied**:
+  do not apply it until `curl -sf http://127.0.0.1:8080/healthz` passes on the
+  host (the `:8080` unit is pending the AdminFrontend audit). The tunnel
+  scripts enforce this (exit 3). Never claim the live routing without host
+  evidence.
 - The terminal's API traffic goes to `dataapiprod.theeyebeta.store/admin/*`
   (DataAPI's allowlisted gateway → loopback `:7200`), not to `admin.*`.
 - The tunnel `my-api` is shared (DataAPI, Prod admin, Local). Watchdog/start

@@ -6,6 +6,7 @@ set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CANONICAL_CONFIG="$REPO_DIR/deploy/cloudflared-config.yml"
+ADMIN_TERMINAL_HEALTH_URL="${ADMIN_TERMINAL_HEALTH_URL:-http://127.0.0.1:8080/healthz}"
 RUNTIME_CONFIG="$REPO_DIR/.runtime-logs/cloudflared-native.yml"
 TUNNEL_NAME="${TUNNEL_NAME:-my-api}"
 CLOUDFLARED_SESSION="${CLOUDFLARED_SESSION:-cloudflared-native}"
@@ -21,7 +22,7 @@ log() { echo "[sync-tunnel] $(date '+%Y-%m-%d %H:%M:%S') $*"; }
 print_plan() {
   echo "Ingress in $CANONICAL_CONFIG (replaces the WHOLE tunnel ingress):"
   grep -E "hostname:|service:" "$CANONICAL_CONFIG" | sed 's/^/    /'
-  echo "Open routing decision for admin.theeyebeta.store: docs/TECH_DEBT.md DEBT-01."
+  echo "admin.theeyebeta.store -> :8080 is the DEBT-01 target; it applies only once $ADMIN_TERMINAL_HEALTH_URL is healthy."
 }
 if [[ "${TUNNEL_CHANGE_APPROVED:-}" != "yes" ]]; then
   echo "DRY RUN: shared Cloudflare Tunnel configuration is not changed by default."
@@ -29,6 +30,21 @@ if [[ "${TUNNEL_CHANGE_APPROVED:-}" != "yes" ]]; then
   echo "To apply, after confirming live routing with the hostname owners:"
   echo "    TUNNEL_CHANGE_APPROVED=yes $0"
   exit 2
+fi
+
+# ---------------------------------------------------------------------------
+# Activation guard (DEBT-01). The config routes admin.theeyebeta.store to the
+# AdminFrontend static terminal host on :8080. Applying it while that host is
+# down takes the admin hostname offline, so even an approved run stops here
+# unless the host answers its health check. Never bypassed automatically.
+# ---------------------------------------------------------------------------
+if grep -Eq "service:[[:space:]]*http://127\.0\.0\.1:8080" "$CANONICAL_CONFIG"; then
+  terminal_health="$(curl -sf --max-time 5 "$ADMIN_TERMINAL_HEALTH_URL" 2>/dev/null || true)"
+  if ! printf '%s' "$terminal_health" | grep -Eq '"ok"[[:space:]]*:[[:space:]]*true'; then
+    echo "REFUSING: AdminFrontend terminal host is not healthy at $ADMIN_TERMINAL_HEALTH_URL." >&2
+    echo "DO NOT APPLY this tunnel config until that health check passes (DEBT-01)." >&2
+    exit 3
+  fi
 fi
 
 mkdir -p "$LOG_DIR"

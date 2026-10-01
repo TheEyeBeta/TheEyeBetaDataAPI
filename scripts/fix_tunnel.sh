@@ -7,6 +7,7 @@ set -euo pipefail
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONFIG="/etc/cloudflared/config.yml"
 CANONICAL_CONFIG="$REPO_DIR/deploy/cloudflared-config.yml"
+ADMIN_TERMINAL_HEALTH_URL="${ADMIN_TERMINAL_HEALTH_URL:-http://127.0.0.1:8080/healthz}"
 TUNNEL_NAME="my-api"
 RUN_USER="${SUDO_USER:-root}"
 
@@ -18,7 +19,7 @@ RUN_USER="${SUDO_USER:-root}"
 print_plan() {
   echo "Ingress in $CANONICAL_CONFIG (replaces the WHOLE tunnel ingress):"
   grep -E "hostname:|service:" "$CANONICAL_CONFIG" | sed 's/^/    /'
-  echo "Open routing decision for admin.theeyebeta.store: docs/TECH_DEBT.md DEBT-01."
+  echo "admin.theeyebeta.store -> :8080 is the DEBT-01 target; it applies only once $ADMIN_TERMINAL_HEALTH_URL is healthy."
 }
 if [[ "${TUNNEL_CHANGE_APPROVED:-}" != "yes" ]]; then
   echo "DRY RUN: shared Cloudflare Tunnel configuration is not changed by default."
@@ -26,6 +27,21 @@ if [[ "${TUNNEL_CHANGE_APPROVED:-}" != "yes" ]]; then
   echo "To apply, after confirming live routing with the hostname owners:"
   echo "    sudo TUNNEL_CHANGE_APPROVED=yes bash $0"
   exit 2
+fi
+
+# ---------------------------------------------------------------------------
+# Activation guard (DEBT-01). The config routes admin.theeyebeta.store to the
+# AdminFrontend static terminal host on :8080. Applying it while that host is
+# down takes the admin hostname offline, so even an approved run stops here
+# unless the host answers its health check. Never bypassed automatically.
+# ---------------------------------------------------------------------------
+if grep -Eq "service:[[:space:]]*http://127\.0\.0\.1:8080" "$CANONICAL_CONFIG"; then
+  terminal_health="$(curl -sf --max-time 5 "$ADMIN_TERMINAL_HEALTH_URL" 2>/dev/null || true)"
+  if ! printf '%s' "$terminal_health" | grep -Eq '"ok"[[:space:]]*:[[:space:]]*true'; then
+    echo "REFUSING: AdminFrontend terminal host is not healthy at $ADMIN_TERMINAL_HEALTH_URL." >&2
+    echo "DO NOT APPLY this tunnel config until that health check passes (DEBT-01)." >&2
+    exit 3
+  fi
 fi
 
 if [[ "$EUID" -ne 0 ]]; then
@@ -58,7 +74,7 @@ echo "Tunnel fixed (native, no Docker):"
 echo "  api.theeyebeta.store     -> 127.0.0.1:8000  (TheEyeBetaLocal Main API)"
 echo "  dataapi.theeyebeta.store     -> 127.0.0.1:7000  (TheEyeBetaDataAPI)"
 echo "  dataapiprod.theeyebeta.store -> 127.0.0.1:7000  (TheEyeBetaDataAPI prod alias)"
-echo "  admin.theeyebeta.store       -> 127.0.0.1:7200  (TheEyeBetaProd admin-service; see DEBT-01)"
+echo "  admin.theeyebeta.store       -> 127.0.0.1:8080  (TheEyeBetaAdminFrontend static terminal host; DEBT-01)"
 echo ""
 echo "Verify:"
 echo "  curl -s https://api.theeyebeta.store/health"

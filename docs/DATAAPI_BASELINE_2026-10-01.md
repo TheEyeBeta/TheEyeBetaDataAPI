@@ -4,6 +4,23 @@ Repository-side baseline of TheEyeBetaDataAPI against TheEyeBetaProd. This
 records what was verified in code and CI, and what only the production host can
 prove. Nothing here was merged, deployed, rotated or applied to a live system.
 
+**Update (same day): operator decisions recorded.**
+
+- **DEBT-01, resolved architecturally.** The decision is
+  `admin.theeyebeta.store → 127.0.0.1:8080`, the TheEyeBetaAdminFrontend static
+  terminal host. `dataapiprod.theeyebeta.store/admin/*` goes through the DataAPI
+  gateway to Prod admin-service on `127.0.0.1:7200`, which is never a tunnel
+  origin.
+  - `deploy/cloudflared-config.yml` now holds this target. It is **not
+    applied**, and the tunnel scripts refuse to apply it until
+    `http://127.0.0.1:8080/healthz` is healthy.
+  - Host activation waits for the AdminFrontend audit, which must give `:8080`
+    a production unit, and for Prod updating its C7 declaration.
+- **DEBT-02, resolved: PRIVATE.** The repository is proprietary infrastructure.
+  The GitHub visibility change is an operator action and was deliberately not
+  made from this session.
+- Host verification remains deferred (section 16).
+
 ## 1. Revisions
 
 | | SHA |
@@ -126,8 +143,10 @@ pinned in tests (DEBT-06).
   was removed. AdminFrontend uses none of the denied routes.
 - The gateway fails closed in four cases: disabled → 503; unlisted family or
   method → 404; mutations need `X-Idempotency-Key`; oversized bodies → 413.
-- `admin.theeyebeta.store → :7200` publishes admin-service in full, including
-  the denied routes. That is DEBT-01.
+- Routing `admin.theeyebeta.store → :7200`, as Prod still declares, would
+  publish admin-service in full, including the denied routes. The DEBT-01
+  decision avoids this: the admin hostname serves the static page from `:8080`,
+  and admin-service is reachable only through the gateway.
 
 ## 8. Lens contract
 
@@ -159,12 +178,18 @@ Canonical table: `docs/OWNERSHIP.md` section 2.
 | Hostname | Origin | Status |
 |---|---|---|
 | `dataapiprod`/`dataapi` | `:7000` | Code |
-| `admin` | `:7200` | Declared by Prod; **open decision DEBT-01**; live value unverified |
+| `admin` | `:8080` (AdminFrontend static terminal host) | **DEBT-01 resolved architecturally**; activation pending the AdminFrontend `:8080` unit; live value unverified |
 | `api` | `:8000` | Owned by Local; host-verify |
+| (none) | `:7200` admin-service | Never a tunnel origin; reached only through the DataAPI gateway |
 
-- AdminFrontend's `:8080` `server.mjs` has no service unit in any repo.
+- AdminFrontend's `:8080` `server.mjs` has no service unit in any repo yet.
+  Its `/healthz` is the activation check.
+- Prod's C7 still declares `admin → :7200` and must be updated to match before
+  activation.
 - No Cloudflare or host configuration was changed.
-- Tunnel changes are operator-only, behind `TUNNEL_CHANGE_APPROVED=yes`.
+- Tunnel changes are operator-only. `sync_tunnel.sh` and `fix_tunnel.sh` need
+  `TUNNEL_CHANGE_APPROVED=yes`, and even then exit 3 while `:8080` is
+  unhealthy. The watchdog and start scripts never touch the tunnel.
 
 ## 11. Monitoring
 
@@ -230,7 +255,7 @@ majors (SQLAlchemy 2.1, openai 3.x, redis 8.x) are tracked as DEBT-10.
 
 | # | Check |
 |---|---|
-| 1 | Live ingress for all four hostnames, in particular `admin.theeyebeta.store` (DEBT-01) |
+| 1 | Live ingress for all four hostnames; before activating DEBT-01: a `:8080` production unit and `curl -sf http://127.0.0.1:8080/healthz` |
 | 2 | `DATABASE_URL` login role; `\du api_service`; `\dp theeyebeta.*`, `\dp iam.*` vs `db_security.sql` (DEBT-05) |
 | 3 | `\d` of the 10 host-only tables and `latest_snapshots` vs `contracts/prod/host_only_assumed.sql` (DEBT-04, DEBT-16) |
 | 4 | Live scopes of `ai-advisor-production` and `theeyebeta-prod-admin` (DEBT-06) |
@@ -242,11 +267,22 @@ majors (SQLAlchemy 2.1, openai 3.x, redis 8.x) are tracked as DEBT-10.
 
 DEBT-03, 07, 08, 09, 10, 12, 13, 14, 16, 17, 18 — see `docs/TECH_DEBT.md`.
 
-## 18. Items for a human decision
+## 18. Decisions
 
-- **DEBT-02.** The repository is public, while `LICENSE` says "proprietary and
-  confidential". Confirm the intent.
-- **LICENSE / ownership.** The copyright holder is "TheEyeBeta". Confirm that
-  this is the right legal entity.
-- **DEBT-01.** Decide the origin for the admin hostname.
-- **DEBT-06.** Decide the Lens `analytics:read` scope.
+| Item | Status |
+|---|---|
+| DEBT-02 repository visibility | **Resolved: PRIVATE.** GitHub setting is pending, and is an operator action |
+| DEBT-01 admin hostname origin | **Resolved: `:8080`** (architecture). Activation pending the AdminFrontend audit and Prod C7 |
+| LICENSE / ownership | Open: confirm that "TheEyeBeta" is the right legal entity for the copyright notice |
+| DEBT-06 Lens `analytics:read` | Open: grant the scope to Lens, or remove the calls in Lens |
+
+## 19. Verdict
+
+**READY FOR ADMIN AUDIT.** The repository-side baseline is complete.
+
+- The two P0 decisions are made and recorded.
+- What remains depends on others or needs host evidence:
+  - the AdminFrontend `:8080` unit and activation;
+  - Prod C7;
+  - the GitHub visibility setting;
+  - the host checks in section 16.
