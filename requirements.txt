@@ -1,15 +1,15 @@
-fastapi==0.141.1
+fastapi==0.142.1
 # Pinned explicitly: FastAPI's own floor (>=0.46) still allows Starlette releases with known advisories.
 starlette==1.7.0
 uvicorn[standard]==0.54.0
 gunicorn==26.2.0
-sqlalchemy==2.0.36
+sqlalchemy==2.1.1
 psycopg[binary]==3.3.6
 pydantic==2.13.5
 pydantic-settings==2.15.0
 python-dotenv==1.2.3
-PyJWT==2.15.0
-openai==1.57.0
-redis==5.2.1
+PyJWT==2.15.1
+openai==1.109.1
+redis==5.3.1
 prometheus-fastapi-instrumentator==8.1.0
 httpx==0.28.1
