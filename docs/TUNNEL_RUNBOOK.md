@@ -11,77 +11,87 @@ Internet
 Cloudflare Edge (TLS)
    │
    ▼
-cloudflared tunnel "my-api"  (systemd: cloudflared.service)
+cloudflared tunnel "my-api"  (systemd: cloudflared.service) — SHARED
    │
-   ├── api.theeyebeta.store     → 127.0.0.1:8000  TheEyeBetaLocal Main API
-   ├── dataapi.theeyebeta.store     → 127.0.0.1:7000  TheEyeBetaDataAPI
-   ├── dataapiprod.theeyebeta.store → 127.0.0.1:7000  TheEyeBetaDataAPI (prod alias)
-   └── admin.theeyebeta.store       → 127.0.0.1:8080  The Eye hosted terminal
+   ├── dataapiprod.theeyebeta.store → 127.0.0.1:7000  TheEyeBetaDataAPI (canonical)
+   ├── dataapi.theeyebeta.store     → 127.0.0.1:7000  TheEyeBetaDataAPI (legacy alias)
+   ├── admin.theeyebeta.store       → 127.0.0.1:8080  TheEyeBetaAdminFrontend static terminal host (target; DEBT-01)
+   └── api.theeyebeta.store         → 127.0.0.1:8000  TheEyeBetaLocal main API
 ```
 
-| Public URL | Local service | Repo |
-|---|---|---|
-| `https://dataapiprod.theeyebeta.store` | `127.0.0.1:7000` | TheEyeBetaDataAPI (canonical production origin) |
-| `https://dataapi.theeyebeta.store` | `127.0.0.1:7000` | TheEyeBetaDataAPI (legacy alias) |
-| `https://api.theeyebeta.store` | `127.0.0.1:8000` | TheEyeBetaLocal |
-| `https://admin.theeyebeta.store` | `127.0.0.1:8080` | The Eye hosted terminal |
+The single routing table, with owners and verification status, is
+[`OWNERSHIP.md`](OWNERSHIP.md) section 2; `tests/test_tunnel_routing.py` keeps it,
+`README.md` and [`deploy/cloudflared-config.yml`](../deploy/cloudflared-config.yml)
+in agreement.
 
-The browser and bundled Windows terminal call `dataapiprod.theeyebeta.store`
-directly. DataAPI's explicit `/admin/*` gateway manifest is the only public
-path to admin-service; `admin.theeyebeta.store` serves static web assets only.
+- The terminal (browser and Tauri) sends every API call to
+  `dataapiprod.theeyebeta.store`; `/admin/*` there goes through DataAPI's
+  allowlisted gateway to admin-service on loopback `:7200`.
+- `admin.theeyebeta.store → :8080` (AdminFrontend `server.mjs`, page only) is
+  the decided target (DEBT-01, 2026-10-01). admin-service on `:7200` is never a
+  tunnel origin: routing a hostname to it would bypass the DataAPI gateway.
+- The tree above is the **target**, not a statement of what is live. TheEyeBetaProd
+  still declares `admin → :7200` (C7), and `:8080` has no proven production
+  unit yet. **Do not apply the config until
+  `curl -sf http://127.0.0.1:8080/healthz` returns `{"ok":true,...}` on the host.**
 
 **Do not use Docker** for these app ports. Old containers (`theeyebeta-dataapi`, `theeyebeta-api-dev`, nginx on `:80`) are obsolete and will break the tunnel if left running.
 
-## Canonical config
+## Change policy (shared tunnel)
 
-There is no separate product hostname or gateway. Product users authenticate
-in the same terminal and receive fewer pages and operations through RBAC.
+The tunnel carries hostnames owned by three repositories. Pushing ingress
+replaces the routing for **all** of them, so:
 
-Source of truth: [`deploy/cloudflared-config.yml`](../deploy/cloudflared-config.yml)
+- `scripts/start_all_native.sh` and `scripts/watchdog_all.sh` never change
+  tunnel configuration. When `https://dataapiprod.theeyebeta.store/health`
+  fails, the watchdog writes an `ALERT` line to `.runtime-logs/watchdog.log`
+  and nothing else.
+- `scripts/fix_tunnel.sh` and `scripts/sync_tunnel.sh` print the ingress they
+  would apply and exit 2 unless `TUNNEL_CHANGE_APPROVED=yes` is set. With
+  approval they still exit 3, changing nothing, while
+  `http://127.0.0.1:8080/healthz` (`ADMIN_TERMINAL_HEALTH_URL`) is not healthy.
+- Before approving: confirm the live routing (Cloudflare dashboard or
+  `cloudflared tunnel info my-api`), get agreement from the owner of every
+  hostname whose origin would change (Prod must update its C7 declaration for
+  the admin hostname), and confirm the `:8080` terminal host runs under a
+  production unit.
 
-Installed copy (requires sudo): `/etc/cloudflared/config.yml`
+Source of truth for DataAPI's hostnames: [`deploy/cloudflared-config.yml`](../deploy/cloudflared-config.yml).
+Installed copy (requires sudo): `/etc/cloudflared/config.yml`.
 
-## Start everything (native)
+## Start services (native)
 
 From `TheEyeBetaDataAPI`:
 
 ```bash
-bash scripts/start_all_native.sh   # Data API :7000 + TheEyeBetaLocal :8000/:8090
-bash scripts/sync_tunnel.sh        # DNS + remote ingress + tunnel verify
+bash scripts/start_all_native.sh   # Data API :7000 + watchdog (no tunnel changes)
+THEEYE_LOCAL_REPO=/path/to/TheEyeBetaLocal bash scripts/start_all_native.sh  # also Local :8000/:8090
 ```
 
-Or use the watchdog (keeps services + tunnel fallback alive):
+The production DataAPI process is the user unit `theeyebeta-dataapi`
+(`systemctl --user restart theeyebeta-dataapi`); see `PRODUCTION_RUNBOOK.md`.
 
-```bash
-tmux new-session -d -s theeyebeta-watchdog "bash scripts/watchdog_all.sh"
-```
+## Applying a tunnel change (approved operator action)
 
-## One-time permanent tunnel fix
-
-If `dataapiprod.theeyebeta.store` returns **502/530** but `curl http://127.0.0.1:7000/health` works, the system tunnel config is stale (often still pointing the Data API hostname at Docker nginx on port **80**).
-
-```bash
-cd /home/the-eye-beta/TheEyeBeta2025/TheEyeBetaDataAPI
-sudo bash scripts/fix_tunnel.sh
-```
-
-This will:
-
-1. Copy `deploy/cloudflared-config.yml` → `/etc/cloudflared/config.yml`
-2. Link DNS hostnames to tunnel `my-api`
-3. Push ingress rules to Cloudflare
-4. Restart `cloudflared.service`
-5. Remove the temporary `cloudflared-native` tmux fallback
-
-## Non-sudo tunnel sync (fallback)
-
-When you cannot run sudo yet:
+Preview first (no changes, exits 2):
 
 ```bash
 bash scripts/sync_tunnel.sh
 ```
 
-This syncs DNS + remote Cloudflare ingress and starts a **fallback** `cloudflared-native` tmux session with the correct config until `fix_tunnel.sh` is run.
+Install `/etc/cloudflared/config.yml`, restart `cloudflared.service`, link DNS
+and push remote ingress:
+
+```bash
+sudo TUNNEL_CHANGE_APPROVED=yes bash scripts/fix_tunnel.sh
+```
+
+Without sudo (DNS + remote ingress only; starts a temporary `cloudflared-native`
+tmux connector if `/etc/cloudflared/config.yml` is stale):
+
+```bash
+TUNNEL_CHANGE_APPROVED=yes bash scripts/sync_tunnel.sh
+```
 
 ## Verify
 
@@ -119,18 +129,22 @@ curl -s -o /dev/null -w "%{http_code}\n" https://dataapiprod.theeyebeta.store/ad
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| Error **1033** / HTTP **530** | DNS not linked to tunnel, or no healthy `cloudflared` connector | `bash scripts/sync_tunnel.sh` |
-| HTTP **502** on `dataapi.*` only | Stale ingress routes `dataapi` → `:80` (dead Docker nginx) | `sudo bash scripts/fix_tunnel.sh` |
-| Local `:7000` OK, tunnel fails | Two connectors: systemd (bad config) + fallback (good config) fighting | `sudo bash scripts/fix_tunnel.sh` |
-| Intermittent 502/200 | Same as above — traffic hits wrong connector | `sudo bash scripts/fix_tunnel.sh` |
+All fixes below change the shared tunnel: follow "Change policy" first.
+
+| Symptom | Cause | Fix (approved) |
+|---|---|---|
+| Error **1033** / HTTP **530** | DNS not linked to tunnel, or no healthy `cloudflared` connector | `TUNNEL_CHANGE_APPROVED=yes bash scripts/sync_tunnel.sh` |
+| HTTP **502** on `dataapi.*` only | Stale ingress routes `dataapi` → `:80` (dead Docker nginx) | `sudo TUNNEL_CHANGE_APPROVED=yes bash scripts/fix_tunnel.sh` |
+| Local `:7000` OK, tunnel fails | Two connectors: systemd (bad config) + fallback fighting | `sudo TUNNEL_CHANGE_APPROVED=yes bash scripts/fix_tunnel.sh` |
+| Intermittent 502/200 | Same as above — traffic hits wrong connector | `sudo TUNNEL_CHANGE_APPROVED=yes bash scripts/fix_tunnel.sh` |
 
 ## tmux sessions
 
 | Session | Purpose |
 |---|---|
 | `theeyebeta-dataapi` | Data API gunicorn on `:7000` |
-| `theeyebeta-watchdog` | Restarts services + tunnel fallback |
-| `cloudflared-native` | Temporary tunnel connector (remove after `fix_tunnel.sh`) |
+| `theeyebeta-watchdog` | Restarts services; logs tunnel ALERTs only |
+| `cloudflared-native` | Temporary connector started by an approved `sync_tunnel.sh` (removed by `fix_tunnel.sh`) |
 
 ```bash
 tmux list-sessions
@@ -154,14 +168,15 @@ When exposed via tunnel, `.env` must include:
 API_HOST=127.0.0.1
 API_PORT=7000
 TRUST_PROXY_HEADERS=true
-TRUSTED_HOSTS=api.theeyebeta.store,dataapi.theeyebeta.store,127.0.0.1,localhost
+TRUSTED_HOSTS=dataapiprod.theeyebeta.store,dataapi.theeyebeta.store,127.0.0.1,localhost
 ```
 
 Bootstrap with proxy support:
 
 ```bash
 python scripts/bootstrap_local_env.py \
-  --database-url "postgresql+psycopg://..." \
+  --environment production \
+  --database-url "postgresql+psycopg://api_service:..." \
   --trust-proxy-headers
 ```
 
@@ -169,8 +184,8 @@ python scripts/bootstrap_local_env.py \
 
 | Script | When to use |
 |---|---|
-| `scripts/start_all_native.sh` | Start all native services |
-| `scripts/sync_tunnel.sh` | Sync DNS + remote ingress (no sudo) |
-| `scripts/fix_tunnel.sh` | Permanent systemd tunnel fix (sudo) |
-| `scripts/watchdog_all.sh` | Keep services + tunnel alive |
+| `scripts/start_all_native.sh` | Start native services (Local only with `THEEYE_LOCAL_REPO`) |
+| `scripts/sync_tunnel.sh` | Preview; with approval: DNS + remote ingress (no sudo) |
+| `scripts/fix_tunnel.sh` | Preview; with approval: install systemd tunnel config (sudo) |
+| `scripts/watchdog_all.sh` | Restart services; alert-only for the tunnel |
 | `scripts/verify_remote_access.sh` | Smoke test through public URL |

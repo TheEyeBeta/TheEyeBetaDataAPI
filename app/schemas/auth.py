@@ -25,7 +25,7 @@ class ServiceTokenResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     access_token: str
-    token_type: str = "bearer"
+    token_type: str = "bearer"  # noqa: S105 - OAuth token type, not a secret
     expires_minutes: int
     scopes: list[str]
     # Present only for clients with short_lived_tokens_enabled (Phase 3 opt-in).

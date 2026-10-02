@@ -11,7 +11,9 @@ All versioned endpoints are under `/api/v1/`.
 
 Runtime data endpoints read from the canonical `theeyebeta` schema only. The
 legacy `public` schema is deprecated for this API; any missing mirror data is a
-data-sync issue, not a runtime fallback path. This API is read-only.
+data-sync issue, not a runtime fallback path. Market data is read-only: the only
+writes are to the `iam` schema (auth bookkeeping, refresh tokens, audit log, and
+admin account lifecycle).
 
 ---
 
@@ -23,6 +25,7 @@ data-sync issue, not a runtime fallback path. This API is read-only.
 4. [Health](#health)
 5. [Auth — Service Tokens](#auth--service-tokens)
 5a. [Auth — Refresh Tokens](#post-apiv1authrefresh)
+5b. [Auth — Delegated Tokens (Lens)](#post-apiv1authdelegated-token)
 6. [Market Data](#market-data)
 7. [Symbols](#symbols)
 8. [Tickers](#tickers)
@@ -32,10 +35,15 @@ data-sync issue, not a runtime fallback path. This API is read-only.
 12. [Signals](#signals)
 13. [News](#news)
 14. [Reference Data](#reference-data)
-15. [Advisor](#advisor)
-16. [Portfolio](#portfolio)
-17. [Generic Data Tables](#generic-data-tables)
-18. [Admin](#admin)
+15. [Macro](#macro)
+16. [Fixed Income](#fixed-income)
+17. [Universe](#universe)
+18. [Sectors](#sectors)
+19. [Advisor](#advisor)
+20. [Portfolio](#portfolio)
+21. [Generic Data Tables](#generic-data-tables)
+22. [Admin](#admin)
+23. [Admin Gateway (`/admin/*`)](#admin-gateway-admin)
 
 ---
 
@@ -55,7 +63,7 @@ Authorization: Bearer <token>
 
 - Decodes always use an explicit algorithm allowlist (no `alg` from the token header).
 - `exp` and `iat` are required on every token.
-- `iss` and `aud` are required when `JWT_REQUIRE_ISS_AUD=true` (default `false` during the grace period documented in `docs/IAM_CONSUMER_INVENTORY.md`).
+- `iss` and `aud` are required and validated (`JWT_REQUIRE_ISS_AUD`, default `true`; `false` is a rollback switch only — see `docs/IAM_CONSUMER_INVENTORY.md`).
 - Service and delegated tokens issued by this API always include `iss`/`aud`/`iat`/`exp`.
 - Auth request bodies (`/api/v1/auth/*`, admin account create/delete) reject unknown fields (`extra=forbid`).
 - When `ENVIRONMENT=production`, `/docs`, `/redoc`, and `/openapi.json` are disabled.
@@ -94,6 +102,7 @@ Each endpoint requires one of the following scopes. A token is only granted the 
 | `admin:read` | Admin dashboard, audit events, ETL status, named queries, all table reads |
 | `admin:write` | Create/deactivate end-user accounts. Separate from `admin:read` — one does not imply the other. |
 | `admin:*` | All admin scopes (wildcard) |
+| `lens:delegate` | Service-client only: may exchange a Lens user token at `/auth/delegated-token`. Never granted to a delegated token itself. |
 
 ---
 
@@ -199,9 +208,18 @@ curl -s -X POST "https://dataapiprod.theeyebeta.store/api/v1/auth/service-token"
 ### `POST /api/v1/auth/refresh`
 
 Exchange a valid refresh token for a new access token and a **rotated** refresh
-token (rotate-on-use). Replaying a previously used refresh token returns `401`.
+token (rotate-on-use). Only for clients with `short_lived_tokens_enabled`; no
+production client (Lens, admin-service) uses refresh today.
 
-**Authentication:** none (the refresh token is the credential).
+- The token is bound to the client it was issued to. Presenting it with another
+  client's credentials returns `401` and revokes the token's family.
+- Replaying a token that was already rotated returns `401` **and revokes every
+  token rotated from it**, including the newest one. Two parallel refreshes of
+  the same token count as a replay: serialise refreshes per token.
+- Expired or explicitly revoked tokens return `401`.
+
+**Authentication:** HTTP Basic (`client_id:client_secret`) of the client the
+refresh token was issued to.
 
 **Request body**
 
@@ -218,9 +236,48 @@ a new `refresh_token`).
 
 ```bash
 curl -s -X POST "https://dataapiprod.theeyebeta.store/api/v1/auth/refresh" \
+  -u "my-client-id:my-client-secret" \
   -H "Content-Type: application/json" \
   -d '{"refresh_token":"<opaque>"}'
 ```
+
+### `POST /api/v1/auth/delegated-token`
+
+Exchange a verified Lens **user** token for a short-lived, tenant-bound DataAPI
+token that acts for that user. The Lens backend authenticates with its own
+service credentials (HTTP Basic) and must hold `lens:delegate`.
+
+**Authentication:** HTTP Basic (`client_id:client_secret`) of a service client with `lens:delegate`.
+
+**Request body**
+
+```json
+{ "subject_token": "<Lens user JWT>" }
+```
+
+Checks, in order (any failure is `401`/`403`): service credentials → `lens:delegate`
+→ user token signature/claims → an ACTIVE Lens application, tenant, membership,
+policy version and `LENS_ACCESS` entitlement in `theeyebeta.dataapi_*` → no
+active lock. Granted scopes are the client's scopes intersected with the
+delegable read set (`market:read`, `symbols:read`, `analytics:read`,
+`signals:read`); admin, portfolio and advisor scopes never cross this boundary.
+
+**Response**
+
+```json
+{
+  "access_token": "<jwt>",
+  "token_type": "bearer",
+  "expires_minutes": 5,
+  "scopes": ["market:read", "signals:read"],
+  "tenant_id": "f6b70d15-2dfd-46b7-a217-3af37ed2b7dc",
+  "product": "LENS"
+}
+```
+
+`expires_minutes` is `DELEGATED_TOKEN_EXPIRES_MINUTES` (1–15). Every request made
+with a delegated token re-checks entitlement and locks when
+`POLICY_ENFORCEMENT_ENABLED=true`.
 
 ---
 
@@ -1149,6 +1206,181 @@ curl -s "https://dataapiprod.theeyebeta.store/api/v1/reference/calendar?start=20
 
 ---
 
+## Macro
+
+Economic series (FRED-style) and the current macro regime snapshot. All routes
+require `market:read`. Canonical prefix `/api/v1/macro`; the original
+`/v1/macro` prefix still serves the same routes for existing consumers.
+
+### `GET /api/v1/macro/series`
+
+List series with their latest value.
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `category` | string | No | — | Filter by category, e.g. `inflation` |
+
+```json
+{
+  "count": 1,
+  "series": [
+    {"code": "DGS10", "name": "10-Year Treasury Constant Maturity", "category": "rates", "frequency": "daily",
+      "units": "Percent", "source": "FRED", "seasonal_adj": false, "latest_value": 4.21,
+      "latest_date": "2026-09-25", "observation_count": 16000, "in_registry": true}
+  ]
+}
+```
+
+### `GET /api/v1/macro/latest`
+
+Latest observation per series.
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `codes` | string | No | all | Comma-separated codes, e.g. `GDPC1,UNRATE,DGS10` |
+
+```json
+{"count": 1, "observations": [{"code": "UNRATE", "name": "Unemployment Rate", "category": "labor",
+  "units": "Percent SA", "date": "2026-08-01", "value": 4.1, "source": "FRED"}]}
+```
+
+### `GET /api/v1/macro/regime`
+
+Most recent regime snapshot: rates (`fed_funds_rate`, `yield_10y`, `yield_2y`,
+`spread_2s10s` and 30-day changes), volatility (`vix`, `vix_pct_rank_1y`),
+dollar (`dxy`), credit (`hy_oas_bps`), equity levels (`sp500_*`, `nasdaq_*`),
+inflation/growth (`cpi`, `cpi_yoy_pct`, `gdp_qoq_pct`), labels
+(`rate_environment`, `yield_curve`, `credit_environment`, `volatility_regime`,
+`dollar_regime`), `style_tilts`, `as_of_date`, `computed_at`. Every field is
+nullable. `404` when no snapshot exists.
+
+### `GET /api/v1/macro/series/{code}`
+
+One series with observations.
+
+| Parameter | Type | Required | Default | Constraints | Description |
+|---|---|---|---|---|---|
+| `start` | date | No | — | — | Inclusive |
+| `end` | date | No | — | — | Inclusive |
+| `limit` | integer | No | `500` | 1–5000 | Max observations |
+
+```json
+{"code": "DGS10", "name": "10-Year Treasury Constant Maturity", "frequency": "daily", "units": "Percent",
+  "in_registry": true, "observation_count": 2, "start": "2026-09-24", "end": "2026-09-25",
+  "observations": [{"date": "2026-09-24", "value": 4.18}, {"date": "2026-09-25", "value": 4.21}]}
+```
+
+`404` for an unknown code.
+
+```bash
+curl -s "https://dataapiprod.theeyebeta.store/api/v1/macro/series/DGS10?start=2026-01-01" -H "Authorization: Bearer $TOKEN"
+```
+
+---
+
+## Fixed Income
+
+US Treasury curve metrics, fixed-income signals and bond-ETF proxies. All routes
+require `market:read`.
+
+### `GET /api/v1/fixed-income/regime`
+
+Latest curve snapshot plus current signals and ETF proxies. `404` when empty.
+
+```json
+{
+  "latest": {"date": "2026-06-15", "country": "US", "currency": "USD", "y_2y": 4.80, "y_10y": 4.25,
+             "spread_10y_2y": -0.55, "spread_10y_3m": -1.10, "real_yield_10y": 2.05,
+             "high_yield_spread": 4.60, "curve_regime": "deep_inversion", "rate_regime": "stable",
+             "credit_regime": "mild_credit_stress", "bond_environment_score": 38,
+             "bond_environment_label": "equity_hostile", "source": "fred+yfinance"},
+  "signals": [{"date": "2026-06-15", "country": "US", "signal_name": "curve_inversion",
+               "value": -1.10, "strength": "strong", "direction": "risk_off",
+               "interpretation": "Curve is inverted."}],
+  "etf_proxies": [{"symbol": "TLT", "name": "iShares 20+ Year Treasury Bond ETF",
+                   "proxy_type": "long_treasury", "issuer_type": "government", "date": "2026-06-15",
+                   "close": 90.12, "change_1d_pct": -0.42, "source": "yfinance:fixed_income_proxy"}]
+}
+```
+
+`latest` also carries `y_1mo`…`y_20y`, `spread_10y_3m`, `spread_30y_5y`,
+`real_yield_10y`, `high_yield_spread`, `ig_corp_spread`, 5/20-day yield
+changes and `y_10y_volatility_20d` (all nullable).
+
+### `GET /api/v1/fixed-income/history`
+
+| Parameter | Type | Required | Default | Constraints |
+|---|---|---|---|---|
+| `start` / `end` | date | No | — | Inclusive |
+| `limit` | integer | No | `252` | 1–5000 |
+
+Response: `{"count": N, "metrics": [<same shape as latest>]}`.
+
+### `GET /api/v1/fixed-income/signals`
+
+| Parameter | Type | Required | Default | Constraints |
+|---|---|---|---|---|
+| `limit` | integer | No | `50` | 1–5000 |
+
+Response: `{"count": N, "signals": [<same shape as regime.signals>]}`.
+
+---
+
+## Universe
+
+Market-cap-ranked tradable universe. Scope: `market:read`.
+
+### `GET /api/v1/universe/active`
+
+| Parameter | Type | Required | Default | Constraints |
+|---|---|---|---|---|
+| `min_market_cap` | number | No | `500000000` | ≥ 0 |
+| `limit` | integer | No | `200` | 1–2000 |
+
+```json
+{"as_of_date": "2026-09-25", "entries": [{"symbol": "AAPL", "as_of_date": "2026-09-25",
+  "market_cap": 3.4e12, "close_price": 227.1, "shares_outstanding": 15000000000, "source": "eod"}]}
+```
+
+### `GET /api/v1/universe/cap-events`
+
+Symbols crossing universe market-cap thresholds.
+
+| Parameter | Type | Required | Default | Constraints |
+|---|---|---|---|---|
+| `since` | date | No | — | Inclusive |
+| `limit` | integer | No | `100` | 1–1000 |
+
+`event_type` is `CROSSED_UP` or `CROSSED_DOWN` (CHECK constraint in
+TheEyeBetaProd migration 0018).
+
+```json
+{"events": [{"id": 1, "trade_date": "2026-06-20", "symbol": "NEWCO", "event_type": "CROSSED_UP",
+  "market_cap": 2150000000.0, "prior_market_cap": null, "action_required": "add", "universe_updated": true}]}
+```
+
+---
+
+## Sectors
+
+### `GET /api/v1/sectors/daily`
+
+Daily sector aggregates. Scope: `market:read`.
+
+| Parameter | Type | Required | Default | Constraints | Description |
+|---|---|---|---|---|---|
+| `sector` | string | No | all | — | One sector name |
+| `limit` | integer | No | `252` | 1–2000 | Max rows |
+
+```json
+{"sectors": [{"sector": "Technology", "as_of_date": "2026-09-25", "n_instruments": 71,
+  "avg_return_1d": 0.004, "avg_return_5d": 0.012, "avg_return_30d": 0.031, "median_rsi_14": 56.2,
+  "pct_above_sma_50": 0.62, "pct_above_sma_200": 0.71, "rel_strength_spx_30d": 1.04,
+  "rotation_rank": 2, "volume_ratio_20d": 1.1, "top_contributors": []}]}
+```
+
+---
+
 ## Advisor
 
 AI-backed endpoints. Both paths are equivalent — `/api/v1/advisor/*` and the shorter `/api/v1/*` aliases work identically.
@@ -1485,6 +1717,17 @@ curl -s "https://dataapiprod.theeyebeta.store/api/v1/admin/named-query?query_nam
   -H "Authorization: Bearer $ADMIN_TOKEN"
 ```
 
+### `GET /api/v1/admin/queries`
+
+List the curated query names accepted by `named-query`.
+
+**Scope:** `admin:read`
+
+```json
+{"queries": ["all_tickers", "command_log", "heartbeats", "latest_prices", "latest_signals",
+             "market_news", "orders", "portfolio", "table_stats"]}
+```
+
 ---
 
 ### `GET /api/v1/admin/etl-jobs`
@@ -1732,4 +1975,32 @@ curl -s -X DELETE "https://dataapiprod.theeyebeta.store/api/v1/admin/accounts/b6
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"approval_code":"<operator-code>","reason":"user requested deletion"}'
+```
+
+---
+
+## Admin Gateway (`/admin/*`)
+
+`GET|POST|PUT|PATCH|DELETE /admin/{path}` forwards Admin Frontend requests to the
+co-located admin-service (`ADMIN_SERVICE_URL`, loopback only). DataAPI does not
+interpret administrator identity; admin-service authenticates each request.
+
+- **Enabled by** `ADMIN_GATEWAY_ENABLED=true`; otherwise `503`.
+- **Allowlist:** only route families in `ADMIN_ROUTE_MANIFEST`
+  (`app/api/routes/admin_gateway.py`) with their permitted methods; anything
+  else, or any `..` segment, is `404` and never reaches admin-service.
+- **Mutations** (`POST/PUT/PATCH/DELETE`, except `auth/*`) require
+  `X-Idempotency-Key`, else `422`. Retry an ambiguous outcome with the same key.
+- **Forwarded request headers:** `Authorization`, `Content-Type`, `Cookie`,
+  `X-Confirm`, `X-CSRF-Token`, `X-Dry-Run`, `X-Idempotency-Key`, `X-Request-ID`
+  (generated if absent). All others are dropped.
+- **Returned headers:** `Content-Type`, `X-Request-ID`, every `Set-Cookie`, and
+  `Cache-Control: no-store`. All other upstream headers are dropped.
+- **Limits and failures:** body over `ADMIN_GATEWAY_MAX_BODY_BYTES` → `413`;
+  upstream timeout (`ADMIN_GATEWAY_TIMEOUT_SECONDS`) → `504` (outcome unknown);
+  upstream unreachable → `503`.
+
+```bash
+# Unauthenticated probe: 401 from admin-service when the gateway is up
+curl -s -o /dev/null -w "%{http_code}\n" "https://dataapiprod.theeyebeta.store/admin/auth/me"
 ```

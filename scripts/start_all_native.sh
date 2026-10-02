@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
-# Start all TheEyeBeta2025 services natively (no Docker) and sync Cloudflare Tunnel.
-# Data API: 127.0.0.1:7000 | TheEyeBetaLocal: engine + API :8000 + Trask :8090
+# Start services natively (no Docker) and the health watchdog.
+# Data API: 127.0.0.1:7000. TheEyeBetaLocal (engine + API :8000 + Trask :8090)
+# only when THEEYE_LOCAL_REPO is set explicitly.
+# Does NOT change Cloudflare Tunnel configuration: the tunnel is shared
+# (docs/OWNERSHIP.md) and changes are an explicit, approved operator action.
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-LOCAL_DIR="${THEEYE_LOCAL_REPO:-$(cd "$REPO_DIR/../TheEyeBetaLocal" 2>/dev/null && pwd || true)}"
+LOCAL_DIR="${THEEYE_LOCAL_REPO:-}"
 LOG_DIR="$REPO_DIR/.runtime-logs"
 mkdir -p "$LOG_DIR"
 
@@ -28,7 +31,7 @@ else
   fuser -k 7000/tcp 2>/dev/null || true
   sleep 1
   cd "$REPO_DIR"
-  DEPLOY_SKIP_GIT_SYNC=1 DEPLOY_SKIP_PIP_INSTALL=1 bash scripts/deploy.sh
+  DEPLOY_SKIP_GIT_SYNC=1 DEPLOY_SKIP_PIP_INSTALL=1 DEPLOY_ALLOW_TMUX_FALLBACK=1 bash scripts/deploy.sh
 fi
 
 if [[ -n "$LOCAL_DIR" && -f "$LOCAL_DIR/scripts/start_all_native.sh" ]]; then
@@ -39,17 +42,16 @@ elif [[ -n "$LOCAL_DIR" && -f "$LOCAL_DIR/scripts/stop_then_start_repo.sh" ]]; t
   echo ""
   echo "==> TheEyeBetaLocal (engine + API :8000 + Trask)"
   bash "$LOCAL_DIR/scripts/stop_then_start_repo.sh"
+elif [[ -n "$LOCAL_DIR" ]]; then
+  echo "THEEYE_LOCAL_REPO=$LOCAL_DIR has no start script" >&2
+  exit 1
 else
   echo ""
-  echo "==> TheEyeBetaLocal repo not found at $LOCAL_DIR — skipping engine/API/Trask"
+  echo "==> TheEyeBetaLocal not managed here (set THEEYE_LOCAL_REPO to opt in)"
 fi
 
 echo ""
-echo "==> Cloudflare Tunnel"
-bash "$REPO_DIR/scripts/sync_tunnel.sh"
-
-echo ""
-echo "==> Watchdog (keeps services + tunnel alive)"
+echo "==> Watchdog (restarts services; reports tunnel failures, never reconfigures it)"
 if command -v tmux >/dev/null 2>&1; then
   tmux kill-session -t theeyebeta-watchdog 2>/dev/null || true
   tmux new-session -d -s theeyebeta-watchdog "bash $REPO_DIR/scripts/watchdog_all.sh"
@@ -68,5 +70,4 @@ echo "==> Verify (tunnel)"
 echo "  Data API:  curl -s https://dataapi.theeyebeta.store/health"
 echo "  Main API:  curl -s https://api.theeyebeta.store/health"
 echo ""
-echo "Permanent tunnel fix (if dataapi tunnel still fails): sudo bash scripts/fix_tunnel.sh"
-echo "Docs: docs/TUNNEL_RUNBOOK.md"
+echo "Tunnel changes are manual and approved: docs/TUNNEL_RUNBOOK.md"

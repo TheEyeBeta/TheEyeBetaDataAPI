@@ -35,27 +35,132 @@ Set `.env` from `.env.example` and configure:
     transaction appends the canonical audit event;
   - set `POLICY_ENFORCEMENT_ENABLED=true`, `ADMIN_GATEWAY_ENABLED=true`, and loopback-only
     `ADMIN_SERVICE_URL=http://127.0.0.1:7200`;
-  - keep DataAPI's database role read-only; `admin-service` commits administrator-authorized
-    policy mutations and audit rows using its existing privileged connection.
+  - run DataAPI as the least-privilege `api_service` role from `deploy/db_security.sql`
+    (read-only on `theeyebeta`; column-scoped `iam` writes for auth bookkeeping and account
+    lifecycle only). `admin-service` commits administrator-authorized policy mutations and
+    audit rows using its own privileged connection.
 
-## 3) Start service
+## 3) One-time host setup
+
+The app runs natively on the machine — no Docker required.
+
+**1. Generate your `.env`:**
 
 ```bash
-cd /home/the-eye-beta/TheEyeBeta2025/TheEyeBetaDataAPI
+cd /path/to/TheEyeBetaDataAPI
+python3 -m venv .venv
 source .venv/bin/activate
-bash scripts/run_production.sh
+pip install -r requirements.txt
+python scripts/bootstrap_local_env.py \
+  --environment production \
+  --database-url "postgresql+psycopg://api_service:REPLACE_ME@127.0.0.1:5432/TheEyeBeta2025Live"
 ```
 
-## 4) Cloudflare Tunnel config
+If running behind Cloudflare Tunnel, add `--trust-proxy-headers`.
 
-```yaml
-ingress:
-  - hostname: api.theeyebeta.store
-    service: http://127.0.0.1:7000
-  - hostname: dataapi.theeyebeta.store
-    service: http://127.0.0.1:7000
-  - service: http_status:404
+Connect as the least-privilege `api_service` role, never `postgres`. Create it
+once (as a DB owner, after the `deploy/iam_*.sql` files) with
+`psql -f deploy/db_security.sql`, then set its password out of band.
+
+`.env` holds every runtime secret (`JWT_SECRET`, `DATABASE_URL`, `SERVICE_CLIENTS_JSON`,
+`ADMIN_ACCOUNT_APPROVAL_CODE`, ...) in one file. `bootstrap_local_env.py` and
+`rotate_secrets.py` both write it (and any `.env.bak.*` backup) with mode `600`
+(owner read/write only) automatically. If you ever hand-edit or copy `.env` by
+some other means, re-run `chmod 600 .env` — a `--user` systemd unit like
+`theeyebeta-dataapi` always runs as you, so 600 never breaks it. `.env.bak.*`
+is git-ignored; never `git add -f` one.
+
+**2. Install as a background service (starts on boot, restarts on crash):**
+
+```bash
+sudo bash scripts/install_service.sh
 ```
+
+This installs a **`--user`** systemd unit (`~/.config/systemd/user/theeyebeta-dataapi.service`),
+not a system one — `sudo` is only used to enable linger for your user so the
+service survives reboots without an active login session. Every command that
+manages it afterward drops the `sudo` (see Service management below); plain
+`sudo systemctl ... theeyebeta-dataapi` will report "Unit could not be found."
+
+Logs are available via journald: `journalctl --user -u theeyebeta-dataapi -f`
+
+**3. Install the GitHub Actions self-hosted runner (auto-deploys on push to `main`):**
+
+GitHub Actions runners are registered per-repo (this account has no org-level runner
+pool), and this machine also hosts a separate runner for `TheEyeBetaProd`. **Use a
+dedicated directory for this repo's runner — never reuse another repo's runner
+directory.** Reusing one re-registers it against this repo and breaks the other
+repo's deploys.
+
+```bash
+mkdir -p ~/actions-runner-dataapi && cd ~/actions-runner-dataapi
+```
+
+Go to: **GitHub → TheEyeBetaDataAPI repo Settings → Actions → Runners → New self-hosted runner → Linux**,
+and run the download + `./config.sh` commands GitHub provides from inside
+`~/actions-runner-dataapi`. Then:
+
+```bash
+sudo ./svc.sh install
+sudo ./svc.sh start
+```
+
+Verify registration succeeded before relying on it: `~/actions-runner-dataapi/.runner`
+should exist and its `gitHubUrl` should point at `TheEyeBetaDataAPI`, and
+`gh api repos/TheEyeBeta/TheEyeBetaDataAPI/actions/runners` should list it. Without
+a registered runner, every push to `main` queues the `deploy` job forever and it
+silently never runs — there's no error, just an indefinitely queued job in the
+Actions tab.
+
+After this, every push to `main` that passes **all** CI jobs is deployed:
+`scripts/deploy.sh` checks out that exact commit (`DEPLOY_SHA`), installs
+dependencies, restarts the `--user` unit, and requires `/health` to report
+`"database": true`; otherwise it restores the previous commit and fails. If the
+unit is not visible it fails instead of starting an unmanaged tmux process.
+`scripts/e2e_admin_smoke.py` then checks the Admin path.
+
+### Service management
+
+`theeyebeta-dataapi` runs as a **`--user`** systemd unit, not a system one —
+no `sudo` for any of these (run as the same user the service was installed
+for). `server.sh` is a dev-only helper whose PID file doesn't track this
+service; it will report "Not running" even when the API is up.
+
+```bash
+# Restart
+systemctl --user restart theeyebeta-dataapi
+
+# Stop
+systemctl --user stop theeyebeta-dataapi
+
+# Start
+systemctl --user start theeyebeta-dataapi
+
+# Status
+systemctl --user status theeyebeta-dataapi
+
+# Logs
+journalctl --user -u theeyebeta-dataapi -f
+```
+
+`scripts/run_production.sh` runs the same gunicorn command in the foreground
+(the unit's `ExecStart` path); use it only for debugging outside systemd.
+
+## 4) Cloudflare Tunnel
+
+Ingress config: [`deploy/cloudflared-config.yml`](../deploy/cloudflared-config.yml).
+The tunnel is shared with TheEyeBetaAdminFrontend (admin hostname, target) and TheEyeBetaLocal
+(`api.*`); the routing table and owners are in [`OWNERSHIP.md`](OWNERSHIP.md).
+
+Tunnel changes are operator actions only. `scripts/fix_tunnel.sh` (installs
+`/etc/cloudflared/config.yml`) and `scripts/sync_tunnel.sh` (replaces the
+Cloudflare remote ingress) print their plan and exit 2 unless
+`TUNNEL_CHANGE_APPROVED=yes` is set. `start_all_native.sh` and
+`watchdog_all.sh` never touch the tunnel; the watchdog only logs an ALERT when
+the public health probe fails. The config routes `admin.theeyebeta.store` to
+the AdminFrontend terminal host on `:8080` (DEBT-01 target); the scripts refuse
+(exit 3) until `http://127.0.0.1:8080/healthz` is healthy. Do not apply before
+the AdminFrontend `:8080` unit is in place. Full guide: [`TUNNEL_RUNBOOK.md`](TUNNEL_RUNBOOK.md).
 
 ## 5) Verification checklist
 
@@ -135,3 +240,35 @@ bash scripts/verify_remote_access.sh
 - Consumer inventory for TTL / grace planning: [`IAM_CONSUMER_INVENTORY.md`](IAM_CONSUMER_INVENTORY.md).
 - Ops hardening (firewall, Prometheus alert sketches, rotation cadence, iam backups):
   [`OPS_HARDENING.md`](OPS_HARDENING.md).
+
+## 7) Optional production hardening toggles
+
+- `iss`/`aud` are required on every JWT decode by default
+  (`JWT_REQUIRE_ISS_AUD=true`). Only set `false` as a rollback; check the host
+  `.env` does not still pin `false`.
+- OIDC/JWKS user JWT validation:
+  - `USER_JWT_JWKS_URL`, `USER_JWT_ISSUER`, `USER_JWT_AUDIENCE`, `USER_JWT_ALGORITHMS`
+- Redis rate limiting backend:
+  - `REDIS_URL`, `RATE_LIMIT_REDIS_PREFIX`
+- mTLS service principal flow:
+  - `SERVICE_MTLS_ENABLED=true`
+  - `SERVICE_MTLS_SUBJECTS_JSON`
+  - `TRUST_PROXY_HEADERS=true`
+
+Consumer inventory for rotation / claim-enforcement planning: [`docs/IAM_CONSUMER_INVENTORY.md`](IAM_CONSUMER_INVENTORY.md).
+
+Additive IAM SQL (apply on host Postgres before enabling the matching feature flags):
+
+- `deploy/iam_refresh_tokens.sql` — refresh tokens + `short_lived_tokens_enabled`
+- `deploy/iam_auth_audit.sql` — `iam.auth_audit_log` + `least_privilege_default` column
+
+New DB-backed clients can be provisioned narrow with:
+
+```bash
+python scripts/provision_db_service_client.py \
+  --client-id example-reader \
+  --display-name "Example reader" \
+  --app-type vi-backend \
+  --least-privilege \
+  --scope market:read
+```

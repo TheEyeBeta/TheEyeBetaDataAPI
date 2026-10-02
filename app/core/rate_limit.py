@@ -16,13 +16,22 @@ from app.core.config import settings
 try:
     import redis
 except ImportError:  # pragma: no cover
-    redis = None
+    redis = None  # type: ignore[assignment]
 
 _CLEANUP_EVERY = 500
 # Seconds to wait before re-attempting a failed Redis connection.
 _REDIS_RETRY_INTERVAL = 30
 
 logger = logging.getLogger("dataapi.ratelimit")
+
+# Every middleware instance's in-memory buckets, so tests can reset them.
+_ip_bucket_stores: list[dict[str, deque[float]]] = []
+
+
+def reset_ip_rate_limits() -> None:
+    """Clear in-memory per-IP buckets. Test-only; state lives on the middleware."""
+    for store in _ip_bucket_stores:
+        store.clear()
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
@@ -33,14 +42,13 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self.window_seconds = 60
         self.max_requests = settings.rate_limit_per_minute
         self._hits: dict[str, deque[float]] = defaultdict(deque)
+        _ip_bucket_stores.append(self._hits)
         self._request_count = 0
         self._redis_client = None
         self._redis_last_failure: float | None = None
 
         if settings.redis_url and redis is None:
-            logger.warning(
-                "REDIS_URL is set but redis package is not installed; using in-memory limiter"
-            )
+            logger.warning("REDIS_URL is set but redis package is not installed; using in-memory limiter")
         elif settings.redis_url and redis is not None:
             self._redis_client = self._make_redis_client()
 

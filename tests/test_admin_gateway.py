@@ -1,8 +1,8 @@
 """Gateway manifest and delegated-token regression tests."""
 
 from app.api.routes.admin_gateway import is_allowed_admin_route
-from app.auth.tokens import create_delegated_access_token, decode_access_token
 from app.auth.scopes import LENS_DELEGATED_READ_SCOPES
+from app.auth.tokens import create_delegated_access_token, decode_access_token
 
 
 def test_admin_gateway_allows_manifested_sql_execute() -> None:

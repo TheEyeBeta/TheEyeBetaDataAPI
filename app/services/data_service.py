@@ -123,9 +123,7 @@ class DataService:
             return [table.model_copy(update={"basic_access": table.name in BASIC_DATA_TABLES}) for table in all_tables]
         self._require_basic_read(principal)
         return [
-            table.model_copy(update={"basic_access": True})
-            for table in all_tables
-            if table.name in BASIC_DATA_TABLES
+            table.model_copy(update={"basic_access": True}) for table in all_tables if table.name in BASIC_DATA_TABLES
         ]
 
     def _ensure_table_visible(self, principal: Principal, table: str) -> None:

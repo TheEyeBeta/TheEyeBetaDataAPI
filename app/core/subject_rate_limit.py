@@ -67,6 +67,4 @@ require_admin_rate_limit = _make_rate_limiter(label="admin", window_seconds=60, 
 # Account deletion also requires an approval code (see app/auth/account_approval.py);
 # this caps guess attempts against that code to 1/min per subject on top of the
 # baseline admin limit, regardless of code strength.
-require_account_delete_rate_limit = _make_rate_limiter(
-    label="account_delete", window_seconds=60, max_requests=1
-)
+require_account_delete_rate_limit = _make_rate_limiter(label="account_delete", window_seconds=60, max_requests=1)

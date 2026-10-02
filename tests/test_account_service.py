@@ -23,7 +23,7 @@ class _FakeResult:
         self._row = row
         self._rows = rows or ([] if row is None else [row])
 
-    def mappings(self) -> "_FakeMappings":
+    def mappings(self) -> _FakeMappings:
         return _FakeMappings(self._row, self._rows)
 
 
@@ -33,6 +33,10 @@ class _FakeMappings:
         self._rows = rows if rows is not None else ([] if row is None else [row])
 
     def first(self) -> dict | None:
+        return self._row
+
+    def one(self) -> dict:
+        assert self._row is not None, "INSERT ... RETURNING yields one row"
         return self._row
 
     def all(self) -> list[dict]:

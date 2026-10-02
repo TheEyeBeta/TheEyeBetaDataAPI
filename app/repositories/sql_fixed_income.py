@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import logging
-from datetime import date
 from collections.abc import Mapping
+from datetime import date
 from typing import Any
 
 from sqlalchemy import text
@@ -96,18 +96,22 @@ class SQLFixedIncomeRepository:
         try:
             if not self._table_exists("theeyebeta.fixed_income_curve_metrics"):
                 return None
-            row = self._session.execute(
-                text(
-                    f"""
+            row = (
+                self._session.execute(
+                    text(
+                        f"""
                     SELECT {", ".join(_METRIC_COLUMNS)}
                       FROM {_METRICS_TABLE}
                      WHERE country = :country
                      ORDER BY date DESC, computed_at DESC
                      LIMIT 1
                     """  # noqa: S608
-                ),
-                {"country": country},
-            ).mappings().first()
+                    ),
+                    {"country": country},
+                )
+                .mappings()
+                .first()
+            )
             return self._metric_from_row(row) if row else None
         except SQLAlchemyError as exc:
             logger.exception("get_latest_metric failed")
@@ -131,18 +135,22 @@ class SQLFixedIncomeRepository:
             if end:
                 parts.append("date <= :end")
                 params["end"] = end
-            rows = self._session.execute(
-                text(
-                    f"""
+            rows = (
+                self._session.execute(
+                    text(
+                        f"""
                     SELECT {", ".join(_METRIC_COLUMNS)}
                       FROM {_METRICS_TABLE}
                      WHERE {" AND ".join(parts)}
                      ORDER BY date DESC
                      LIMIT :limit
                     """  # noqa: S608
-                ),
-                params,
-            ).mappings().all()
+                    ),
+                    params,
+                )
+                .mappings()
+                .all()
+            )
             return [self._metric_from_row(row) for row in rows]
         except SQLAlchemyError as exc:
             logger.exception("get_history failed")
@@ -162,9 +170,10 @@ class SQLFixedIncomeRepository:
             if as_of_date:
                 parts.append("date = :as_of_date")
                 params["as_of_date"] = as_of_date
-            rows = self._session.execute(
-                text(
-                    f"""
+            rows = (
+                self._session.execute(
+                    text(
+                        f"""
                     SELECT
                         date,
                         country,
@@ -179,9 +188,12 @@ class SQLFixedIncomeRepository:
                      ORDER BY date DESC, signal_name
                      LIMIT :limit
                     """  # noqa: S608
-                ),
-                params,
-            ).mappings().all()
+                    ),
+                    params,
+                )
+                .mappings()
+                .all()
+            )
             return [
                 FixedIncomeSignal(
                     date=row["date"],
@@ -201,9 +213,10 @@ class SQLFixedIncomeRepository:
 
     def get_etf_proxy_prices(self) -> list[FixedIncomeETFProxyPrice]:
         try:
-            rows = self._session.execute(
-                text(
-                    """
+            rows = (
+                self._session.execute(
+                    text(
+                        """
                     WITH ranked AS (
                         SELECT
                             i.symbol,
@@ -256,8 +269,11 @@ class SQLFixedIncomeRepository:
                      WHERE latest.rn = 1
                      ORDER BY latest.symbol
                     """
+                    )
                 )
-            ).mappings().all()
+                .mappings()
+                .all()
+            )
             return [
                 FixedIncomeETFProxyPrice(
                     symbol=str(row["symbol"]),
@@ -284,7 +300,7 @@ class SQLFixedIncomeRepository:
         )
 
     @staticmethod
-    def _metric_from_row(row: Mapping[str, Any]) -> FixedIncomeCurveMetric:
+    def _metric_from_row(row: Mapping[Any, Any]) -> FixedIncomeCurveMetric:
         values: dict[str, Any] = {}
         for column in _METRIC_COLUMNS:
             raw = row.get(column)

@@ -1,0 +1,7 @@
+# Every path defaults to the repository owner. Auth, IAM SQL, config and CI
+# are the release-gate surfaces for Lens and the Admin Frontend.
+*                     @TheEyeBeta
+/app/auth/            @TheEyeBeta
+/app/core/config.py   @TheEyeBeta
+/deploy/              @TheEyeBeta
+/.github/             @TheEyeBeta

@@ -49,17 +49,43 @@ not a system one. `sudo systemctl restart theeyebeta-dataapi` (as written in
 some older docs/scripts) fails with "Unit could not be found." Verify with
 `curl -s http://127.0.0.1:7000/health` after restarting.
 
-`server.sh`/`./server.sh status` is a separate nohup-based path whose PID file
-does not track the gunicorn process systemd starts — it will report "Not
-running" even when the API is up. Don't trust it for status checks.
+`server.sh` is a **dev-only** background helper (nohup uvicorn, loopback by
+default). Its PID file does not track the gunicorn process systemd starts — it
+will report "Not running" even when the service is up. Never use it for status
+checks or to run the real service.
+
+## Project layout
+
+```
+app/        FastAPI app: api/routes → services → repositories (SQL) → domain
+tests/      pytest suite (no DB needed; tests/integration/ needs Postgres)
+scripts/    setup, provisioning, secret rotation, deploy, tunnel helpers
+deploy/     IAM SQL (apply by hand), nginx, Prometheus/Grafana, tunnel config
+docs/       API reference, runbooks, E2E verification, TECH_STACK/ARCHITECTURE/TECH_DEBT
+packages/   TypeScript client for the API
+```
 
 ## Hosted terminal ingress
 
-`admin.theeyebeta.store` is the public entrypoint for The Eye hosted terminal,
-not a direct public admin-service origin. The canonical tunnel config routes it
-to loopback port `8080`; the Node terminal host proxies authenticated admin
-operations through DataAPI's allowlisted gateway. Do not repoint this hostname
-to port `7200` without an explicit rollback decision.
+Canonical routing table and ownership: `docs/OWNERSHIP.md`. Facts that are
+easy to get wrong:
+
+- Target (DEBT-01, decided by the operator 2026-10-01):
+  `admin.theeyebeta.store` → `127.0.0.1:8080`, the TheEyeBetaAdminFrontend
+  static terminal host. Prod admin-service (`:7200`) must **never** be a tunnel
+  origin: that would bypass the DataAPI gateway and publish routes it denies.
+  `deploy/cloudflared-config.yml` holds this target but is **not applied**:
+  do not apply it until `curl -sf http://127.0.0.1:8080/healthz` passes on the
+  host (the `:8080` unit is pending the AdminFrontend audit). The tunnel
+  scripts enforce this (exit 3). Never claim the live routing without host
+  evidence.
+- The terminal's API traffic goes to `dataapiprod.theeyebeta.store/admin/*`
+  (DataAPI's allowlisted gateway → loopback `:7200`), not to `admin.*`.
+- The tunnel `my-api` is shared (DataAPI, Prod admin, Local). Watchdog/start
+  scripts never change it; `sync_tunnel.sh` / `fix_tunnel.sh` refuse to run
+  without `TUNNEL_CHANGE_APPROVED=yes` (operator decision, see
+  `docs/TUNNEL_RUNBOOK.md`). `tests/test_tunnel_routing.py` enforces this.
+- TheEyeBetaLocal is only started/restarted when `THEEYE_LOCAL_REPO` is set.
 
 ## Runtime secrets (`.env`)
 
@@ -71,6 +97,11 @@ you, so this never breaks anything.
 - `scripts/bootstrap_local_env.py` and `scripts/rotate_secrets.py` both
   `chmod 600` `.env` and any `.env.bak.*` backup automatically. If you ever
   hand-create or copy `.env` by some other means, `chmod 600 .env` yourself.
+- `bootstrap_local_env.py` requires `--environment development|staging|production`
+  (no default, on purpose). `DATABASE_URL` should use the least-privilege
+  `api_service` role from `deploy/db_security.sql`, never `postgres`.
+- JWT signing secrets (`JWT_SECRET`, `JWT_SIGNING_SECRET_*`, `USER_JWT_SECRET*`)
+  must be >= 32 bytes; the app refuses to start otherwise. Generated ones are 48.
 - `.env.bak.*` is git-ignored. Never `git add -f` one — a rotation or forced
   bootstrap run followed by a broad `git add -A`/`git add .` is exactly how a
   full secrets dump ends up in history.
@@ -102,15 +133,18 @@ state (`app/core/subject_rate_limit.py`) keyed by `auth_subject`, which is
 fixed per test service-client (e.g. `service:admin-tool`) — `tests/conftest.py`
 has an autouse fixture (`_reset_rate_limit_buckets`) that clears them before
 every test. If you add a new rate limiter via `_make_rate_limiter`, it's
-covered by that reset automatically; no extra wiring needed.
+covered by that reset automatically; no extra wiring needed. The per-IP
+`RateLimitMiddleware` buckets (all TestClient calls share the `testclient` IP)
+are cleared by the same fixture via `reset_ip_rate_limits()`.
 
 ## IAM hardening (in progress)
 
 - Phase 0 inventory: `docs/IAM_CONSUMER_INVENTORY.md`
-- Phase 1: JWT algorithm allowlists, `exp`/`iat` required, `JWT_REQUIRE_ISS_AUD`
-  grace flag (default false), auth request `extra=forbid`, OpenAPI disabled in
-  production. Do not flip `JWT_REQUIRE_ISS_AUD=true` until inventory open
-  questions are closed.
+- Phase 1: JWT algorithm allowlists, `exp`/`iat` required, auth request
+  `extra=forbid`, OpenAPI disabled in production. `JWT_REQUIRE_ISS_AUD`
+  defaults to **true** (every consumer uses DataAPI-minted tokens, which carry
+  `iss`/`aud`); `false` is a rollback switch only. The host `.env` may still
+  pin `false` — host-verify before claiming enforcement is live.
 - Phase 2: zero-downtime signing rotation via
   `JWT_SIGNING_SECRET_CURRENT`/`PREVIOUS` and `USER_JWT_SECRET_PREVIOUS`.
   Follow `docs/SECRET_ROTATION_RUNBOOK.md`; never clear `PREVIOUS` before one

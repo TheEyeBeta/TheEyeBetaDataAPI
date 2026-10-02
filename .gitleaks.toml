@@ -1,0 +1,27 @@
+# gitleaks config: default rules + an allowlist for known placeholder values.
+# Every entry is a documented dummy, never a credential. Do not widen these
+# patterns to cover real-looking values; rotate and remove a real leak instead.
+title = "TheEyeBetaDataAPI"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "CI/test dummy secrets and .env.example placeholders"
+regexTarget = "line"
+regexes = [
+  '''ci-dummy-jwt-secret-at-least-32-bytes-long''',
+  '''ci-contract-only-password''',
+  '''this-is-a-dummy-[a-z-]+''',
+  '''"secret":"REPLACE_[A-Z_0-9]+"''',
+]
+
+[[allowlists]]
+description = "curl examples in docs with placeholder credentials or no credentials"
+paths = ['''^README\.md$''', '''^docs/.*\.md$''']
+regexTarget = "line"
+regexes = [
+  '''-u "(my-client-id:my-client-secret|[a-z-]+:<[A-Z_]+>)"''',
+  '''curl -s -o /dev/null -w''',
+  '''curl -s -X POST "https?://[^"]+/api/v1/auth/[a-z-]+" \\$''',
+]

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -26,9 +27,10 @@ class PolicyRepository:
         self._session = session
 
     def grant_lens_delegation(self, *, client_id: str, subject: str) -> DelegationGrant:
-        row = self._session.execute(
-            text(
-                """
+        row = (
+            self._session.execute(
+                text(
+                    """
                 SELECT app.tenant_id::text AS tenant_id, pv.version AS policy_version
                 FROM theeyebeta.dataapi_applications app
                 JOIN theeyebeta.dataapi_tenants tenant ON tenant.id = app.tenant_id
@@ -51,14 +53,15 @@ class PolicyRepository:
                 ORDER BY pv.version DESC
                 LIMIT 1
                 """
-            ),
-            {"client_id": client_id, "subject": subject},
-        ).mappings().first()
+                ),
+                {"client_id": client_id, "subject": subject},
+            )
+            .mappings()
+            .first()
+        )
         if not row:
             raise AuthorizationError("Lens delegation is not entitled")
-        self._assert_not_locked(
-            tenant_id=str(row["tenant_id"]), client_id=client_id, subject=subject, token_id=None
-        )
+        self._assert_not_locked(tenant_id=str(row["tenant_id"]), client_id=client_id, subject=subject, token_id=None)
         return DelegationGrant(tenant_id=str(row["tenant_id"]), policy_version=int(row["policy_version"]))
 
     def enforce(self, principal: Principal) -> None:
@@ -122,7 +125,13 @@ class PolicyRepository:
         subject: str | None,
         token_id: str | None,
     ) -> None:
-        scopes = [("GLOBAL", "*"), ("TENANT", tenant_id), ("APPLICATION", client_id), ("SUBJECT", subject), ("CREDENTIAL", token_id)]
+        scopes = [
+            ("GLOBAL", "*"),
+            ("TENANT", tenant_id),
+            ("APPLICATION", client_id),
+            ("SUBJECT", subject),
+            ("CREDENTIAL", token_id),
+        ]
         active_scopes = [(scope_type, scope_id) for scope_type, scope_id in scopes if scope_id]
         if not active_scopes:
             return
@@ -143,7 +152,7 @@ class PolicyRepository:
                   AND (expires_at IS NULL OR expires_at > now())
                   AND ({clauses})
                 LIMIT 1
-                """
+                """  # noqa: S608
             ),
             params,
         ).first()

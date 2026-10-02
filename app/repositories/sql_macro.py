@@ -65,14 +65,35 @@ _REGIME_COLUMNS = (
 )
 
 _REGIME_NUMERIC = {
-    "fed_funds_rate", "yield_10y", "yield_2y", "spread_2s10s", "vix", "dxy",
-    "hy_oas_bps", "sp500_level", "sp500_change_pct", "nasdaq_level",
-    "nasdaq_change_pct", "cpi", "gdp", "fed_funds_change_30d",
-    "yield_10y_change_30d", "yield_2y_change_30d", "spread_2s10s_change_30d",
-    "dxy_change_5d", "dxy_change_30d", "vix_change_5d", "vix_pct_rank_1y",
-    "hy_oas_change_30d", "sp500_change_5d_pct", "sp500_change_30d_pct",
-    "nasdaq_change_5d_pct", "nasdaq_change_30d_pct", "cpi_surprise",
-    "cpi_yoy_pct", "gdp_qoq_pct",
+    "fed_funds_rate",
+    "yield_10y",
+    "yield_2y",
+    "spread_2s10s",
+    "vix",
+    "dxy",
+    "hy_oas_bps",
+    "sp500_level",
+    "sp500_change_pct",
+    "nasdaq_level",
+    "nasdaq_change_pct",
+    "cpi",
+    "gdp",
+    "fed_funds_change_30d",
+    "yield_10y_change_30d",
+    "yield_2y_change_30d",
+    "spread_2s10s_change_30d",
+    "dxy_change_5d",
+    "dxy_change_30d",
+    "vix_change_5d",
+    "vix_pct_rank_1y",
+    "hy_oas_change_30d",
+    "sp500_change_5d_pct",
+    "sp500_change_30d_pct",
+    "nasdaq_change_5d_pct",
+    "nasdaq_change_30d_pct",
+    "cpi_surprise",
+    "cpi_yoy_pct",
+    "gdp_qoq_pct",
 }
 
 
@@ -99,9 +120,10 @@ class SQLMacroRepository:
 
     def get_series_stats(self) -> list[MacroSeriesStat]:
         try:
-            rows = self._session.execute(
-                text(
-                    f"""
+            rows = (
+                self._session.execute(
+                    text(
+                        f"""
                     SELECT
                         series_code,
                         COUNT(*) AS observation_count,
@@ -112,8 +134,11 @@ class SQLMacroRepository:
                     GROUP BY series_code
                     ORDER BY series_code
                     """  # noqa: S608
+                    )
                 )
-            ).mappings().all()
+                .mappings()
+                .all()
+            )
             return [
                 MacroSeriesStat(
                     code=str(r["series_code"]),
@@ -156,22 +181,23 @@ class SQLMacroRepository:
                 parts.append("ts::date <= :end")
                 params["end"] = end
             where = " AND ".join(parts)
-            rows = self._session.execute(
-                text(
-                    f"""
+            rows = (
+                self._session.execute(
+                    text(
+                        f"""
                     SELECT ts::date AS obs_date, value
                     FROM {_INDICATORS}
                     WHERE {where}
                     ORDER BY ts DESC
                     LIMIT :limit
                     """  # noqa: S608
-                ),
-                params,
-            ).mappings().all()
-            return [
-                MacroObservation(date=r["obs_date"], value=_to_float(r.get("value")))
-                for r in rows
-            ]
+                    ),
+                    params,
+                )
+                .mappings()
+                .all()
+            )
+            return [MacroObservation(date=r["obs_date"], value=_to_float(r.get("value"))) for r in rows]
         except SQLAlchemyError as exc:
             logger.exception("get_observations failed")
             raise DatabaseUnavailableError("Unable to fetch macro observations") from exc
@@ -180,21 +206,17 @@ class SQLMacroRepository:
         try:
             where = ""
             params: dict[str, Any] = {}
-            stmt_text = (
-                f"""
+            stmt_text = f"""
                 SELECT DISTINCT ON (series_code)
                     series_code, ts::date AS obs_date, value, source
                 FROM {_INDICATORS}
                 {{where}}
                 ORDER BY series_code, ts DESC
                 """  # noqa: S608
-            )
             if codes:
                 where = "WHERE series_code IN :codes"
                 params["codes"] = codes
-                stmt = text(stmt_text.format(where=where)).bindparams(
-                    bindparam("codes", expanding=True)
-                )
+                stmt = text(stmt_text.format(where=where)).bindparams(bindparam("codes", expanding=True))
             else:
                 stmt = text(stmt_text.format(where=where))
             rows = self._session.execute(stmt, params).mappings().all()
@@ -236,16 +258,20 @@ class SQLMacroRepository:
         if "computed_at" in columns:
             order_sql += ", computed_at DESC"
 
-        row = self._session.execute(
-            text(
-                f"""
+        row = (
+            self._session.execute(
+                text(
+                    f"""
                 SELECT {column_sql}
                 FROM {schema}.{table}
                 ORDER BY {order_sql}
                 LIMIT 1
                 """  # noqa: S608
+                )
             )
-        ).mappings().first()
+            .mappings()
+            .first()
+        )
         if not row:
             return None
 

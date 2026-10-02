@@ -17,6 +17,14 @@ from app.schemas.data import DataColumnInfo, DataTableInfo
 _SCHEMA = "theeyebeta"
 _IDENTIFIER_RE = r"^[A-Za-z_][A-Za-z0-9_]*$"
 _ORDER_DIRECTIONS = {"asc": "ASC", "desc": "DESC"}
+# theeyebeta.public_ticker_map has no symbol column (TheEyeBetaProd migration
+# 0024); resolve the symbol through instruments.
+TICKER_ID_SYMBOL_CLAUSE = (
+    "ticker_id IN ("
+    "SELECT m.public_ticker_id FROM theeyebeta.public_ticker_map m "
+    "JOIN theeyebeta.instruments i ON i.id = m.instrument_id "
+    "WHERE UPPER(i.symbol) = UPPER(:symbol))"
+)
 _FILTER_OPS = {
     "eq": "=",
     "ne": "!=",
@@ -65,9 +73,10 @@ class SQLReadOnlyDataRepository:
 
     def list_tables(self) -> list[DataTableInfo]:
         try:
-            rows = self._session.execute(
-                text(
-                    """
+            rows = (
+                self._session.execute(
+                    text(
+                        """
                     SELECT
                         t.table_name,
                         t.table_type,
@@ -79,14 +88,19 @@ class SQLReadOnlyDataRepository:
                     WHERE t.table_schema = :schema
                     ORDER BY t.table_name
                     """
-                ),
-                {"schema": _SCHEMA},
-            ).mappings().all()
+                    ),
+                    {"schema": _SCHEMA},
+                )
+                .mappings()
+                .all()
+            )
             return [
                 DataTableInfo(
                     name=str(row["table_name"]),
                     table_type=str(row["table_type"]),
-                    row_count_estimate=int(row["row_count_estimate"]) if row.get("row_count_estimate") is not None else None,
+                    row_count_estimate=int(row["row_count_estimate"])
+                    if row.get("row_count_estimate") is not None
+                    else None,
                 )
                 for row in rows
             ]
@@ -99,18 +113,22 @@ class SQLReadOnlyDataRepository:
     def list_columns(self, table: str) -> list[DataColumnInfo]:
         _quote_ident(table)
         try:
-            rows = self._session.execute(
-                text(
-                    """
+            rows = (
+                self._session.execute(
+                    text(
+                        """
                     SELECT column_name, data_type, is_nullable, ordinal_position
                     FROM information_schema.columns
                     WHERE table_schema = :schema
                       AND table_name = :table
                     ORDER BY ordinal_position
                     """
-                ),
-                {"schema": _SCHEMA, "table": table},
-            ).mappings().all()
+                    ),
+                    {"schema": _SCHEMA, "table": table},
+                )
+                .mappings()
+                .all()
+            )
         except SQLAlchemyError as exc:
             raise DatabaseUnavailableError("Unable to list table columns") from exc
         if not rows and not self.table_exists(table):
@@ -166,11 +184,7 @@ class SQLReadOnlyDataRepository:
                     "WHERE UPPER(symbol) = UPPER(:symbol) LIMIT 1)"
                 )
             elif "ticker_id" in columns:
-                clauses.append(
-                    "ticker_id IN ("
-                    "SELECT public_ticker_id FROM theeyebeta.public_ticker_map "
-                    "WHERE UPPER(symbol) = UPPER(:symbol))"
-                )
+                clauses.append(TICKER_ID_SYMBOL_CLAUSE)
             elif "symbol" in columns:
                 clauses.append("UPPER(symbol) = UPPER(:symbol)")
             else:
@@ -199,7 +213,7 @@ class SQLReadOnlyDataRepository:
 
         where_sql = f" WHERE {' AND '.join(clauses)}" if clauses else ""
         sql = (
-            f"SELECT * FROM {q_table}"
+            f"SELECT * FROM {q_table}"  # noqa: S608
             f"{where_sql}"
             f" ORDER BY {_quote_ident(selected_order_by)} {direction}"
             " LIMIT :limit OFFSET :offset"
@@ -213,17 +227,21 @@ class SQLReadOnlyDataRepository:
     def _table_type(self, table: str) -> str | None:
         _quote_ident(table)
         try:
-            row = self._session.execute(
-                text(
-                    """
+            row = (
+                self._session.execute(
+                    text(
+                        """
                     SELECT table_type
                     FROM information_schema.tables
                     WHERE table_schema = :schema
                       AND table_name = :table
                     """
-                ),
-                {"schema": _SCHEMA, "table": table},
-            ).mappings().first()
+                    ),
+                    {"schema": _SCHEMA, "table": table},
+                )
+                .mappings()
+                .first()
+            )
         except SQLAlchemyError as exc:
             raise DatabaseUnavailableError("Unable to inspect table") from exc
         return str(row["table_type"]) if row else None

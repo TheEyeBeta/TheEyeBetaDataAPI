@@ -2,7 +2,6 @@
 
 import os
 
-
 # Ensure required settings exist before app modules import `settings = Settings()`.
 os.environ["ENVIRONMENT"] = "development"
 os.environ["DEBUG"] = "false"
@@ -32,10 +31,11 @@ os.environ.setdefault("API_PORT", "7000")
 os.environ.setdefault("CORS_ORIGINS", "http://localhost:3000,http://localhost:5173")
 os.environ.setdefault("TRUSTED_HOSTS", "testserver,localhost,127.0.0.1")
 os.environ.setdefault("TRUST_PROXY_HEADERS", "false")
-os.environ.setdefault("JWT_REQUIRE_ISS_AUD", "false")
+os.environ.setdefault("JWT_REQUIRE_ISS_AUD", "true")
 
 import pytest  # noqa: E402
 
+from app.core.rate_limit import reset_ip_rate_limits  # noqa: E402
 from app.core.subject_rate_limit import reset_rate_limits  # noqa: E402
 
 
@@ -44,6 +44,8 @@ def _reset_rate_limit_buckets():
     """Rate-limit buckets are process-global and keyed by auth_subject, which is
     fixed per test service-client (e.g. "service:admin-tool") -- without this,
     tests that call the same rate-limited route back-to-back would collide.
+    The per-IP middleware buckets ("testclient") are cleared for the same reason.
     """
     reset_rate_limits()
+    reset_ip_rate_limits()
     yield

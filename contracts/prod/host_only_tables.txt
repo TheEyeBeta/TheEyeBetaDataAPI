@@ -1,0 +1,17 @@
+# theeyebeta objects TheEyeBetaDataAPI queries that NO TheEyeBetaProd migration
+# creates (Prod @ contracts/prod/PROD_SHA). They exist only on the production
+# host (created outside Alembic). The contract gate cannot verify them; the
+# routes that use them are listed in docs/TECH_DEBT.md (DEBT-04) and stay
+# unverified until Prod adopts these tables into a migration.
+# The gate FAILS if a table here appears in the snapshot (then remove it here
+# and add it to objects.txt) or if DataAPI references a table in neither list.
+fund_balance_q
+fund_cashflow_q
+fund_income_q
+ind_risk_daily
+ind_valuation_daily
+price_ticks
+provider_sync_runs
+returns_snapshot_daily
+ticker_news
+trask_audit_events_archive

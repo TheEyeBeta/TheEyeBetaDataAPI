@@ -43,10 +43,10 @@ def _extract_key_prefix(raw_key: str) -> str:
     """
     if not raw_key.startswith(USER_API_KEY_PREFIX):
         raise AuthenticationError("Invalid API key")
-    body = raw_key[len(USER_API_KEY_PREFIX):]
+    body = raw_key[len(USER_API_KEY_PREFIX) :]
     prefix = body[:_PREFIX_HEX_LEN]
     # Must be 16 hex chars followed by '_' and a non-empty secret.
-    if len(prefix) != _PREFIX_HEX_LEN or body[_PREFIX_HEX_LEN:_PREFIX_HEX_LEN + 1] != "_":
+    if len(prefix) != _PREFIX_HEX_LEN or body[_PREFIX_HEX_LEN : _PREFIX_HEX_LEN + 1] != "_":
         raise AuthenticationError("Invalid API key")
     if len(body) <= _PREFIX_HEX_LEN + 1:
         raise AuthenticationError("Invalid API key")
@@ -177,6 +177,8 @@ def verify_user_api_key(
             db_session.commit()
             if failure_reason == "key_expired":
                 raise AuthenticationError("API key expired")
+            raise AuthenticationError("Invalid API key")
+        if row is None:  # unreachable: a missing row set failure_reason above
             raise AuthenticationError("Invalid API key")
 
         scopes = [str(scope).strip() for scope in (row["scopes"] or []) if str(scope).strip()]

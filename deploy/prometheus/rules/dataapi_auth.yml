@@ -29,7 +29,7 @@ groups:
             Token issuance/refresh may be unhealthy.
 
       # Refresh-token reuse is primarily detected in application logs today
-      # ("Refresh token already used or revoked"). This rule watches for an
+      # ("refresh token reuse detected"; the token family is revoked). This rule watches for an
       # elevated 401 rate on the refresh route as a coarse proxy until a
       # dedicated counter is added.
       - alert: DataAPIRefreshAuthFailures
@@ -43,4 +43,4 @@ groups:
           summary: "Elevated /api/v1/auth/refresh 401s"
           description: >-
             Possible refresh-token reuse or client misconfiguration. Correlate
-            with journald lines containing "Refresh token already used or revoked".
+            with journald lines containing "refresh token reuse detected".

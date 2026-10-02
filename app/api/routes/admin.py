@@ -69,6 +69,7 @@ def execute_named_query(
     """Execute a server-side curated named query."""
     if query_name not in CURATED_QUERY_NAMES:
         from fastapi import HTTPException
+
         raise HTTPException(status_code=422, detail=f"Unknown query_name: {query_name!r}")
     logger.warning(
         "admin_named_query auth_subject=%s query_name=%s limit=%d",

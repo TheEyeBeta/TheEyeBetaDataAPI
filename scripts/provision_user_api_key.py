@@ -67,8 +67,7 @@ def _expires_at(days: int) -> datetime:
         raise ValueError("--expires-days is required and must be >= 1")
     if days > settings.user_api_key_max_expires_days:
         raise ValueError(
-            f"--expires-days cannot exceed USER_API_KEY_MAX_EXPIRES_DAYS "
-            f"({settings.user_api_key_max_expires_days})"
+            f"--expires-days cannot exceed USER_API_KEY_MAX_EXPIRES_DAYS ({settings.user_api_key_max_expires_days})"
         )
     return datetime.now(UTC) + timedelta(days=days)
 

@@ -169,3 +169,81 @@ def test_openapi_disabled_in_production() -> None:
     assert openapi_route_kwargs("development")["docs_url"] == "/docs"
     client = TestClient(app)
     assert client.get("/openapi.json").status_code == 200
+
+
+def _settings(**overrides) -> Settings:
+    base = {
+        "database_url": settings.database_url,
+        "jwt_secret": settings.jwt_secret,
+        "trusted_hosts": "dataapiprod.theeyebeta.store",
+        "policy_enforcement_enabled": True,
+        "service_client_auth_mode": "environment",
+        "service_clients_json": settings.service_clients_json,
+    }
+    base.update(overrides)
+    return Settings(**base)
+
+
+def test_jwt_secrets_must_be_at_least_32_bytes() -> None:
+    with pytest.raises(ValidationError):
+        _settings(jwt_secret="x" * 31)
+    with pytest.raises(ValidationError):
+        _settings(jwt_signing_secret_current="y" * 31)
+    with pytest.raises(ValidationError):
+        _settings(user_jwt_secret="z" * 31)
+    assert _settings(jwt_secret="x" * 32).jwt_secret == "x" * 32
+
+
+def test_production_cors_always_admits_admin_frontend_origins() -> None:
+    prod = _settings(environment="production", cors_origins="")
+    assert "https://admin.theeyebeta.store" in prod.parsed_cors_origins
+    assert "tauri://localhost" in prod.parsed_cors_origins
+
+
+def test_non_production_cors_is_exactly_the_configured_list() -> None:
+    dev = _settings(environment="development", cors_origins="http://localhost:5173")
+    assert dev.parsed_cors_origins == ["http://localhost:5173"]
+
+
+# ---------------------------------------------------------------------------
+# JWT_REQUIRE_ISS_AUD=true is the default (docs/IAM_CONSUMER_INVENTORY.md §2).
+# Every production consumer (Lens, Lens admin route, Prod admin-service,
+# TheEyeBetaLocal) obtains its token from /api/v1/auth/service-token and sends
+# it back unchanged, and DataAPI has put iss/aud in every token it mints since
+# 2026-03. These tests pin that compatibility.
+# ---------------------------------------------------------------------------
+
+
+def test_iss_aud_enforced_by_default() -> None:
+    assert Settings.model_fields["jwt_require_iss_aud"].default is True
+    assert settings.jwt_require_iss_aud is True  # tests run the production default
+
+
+def _quotes(token: str) -> int:
+    return (
+        TestClient(app)
+        .get("/api/v1/market-data/quotes?symbols=AAPL", headers={"Authorization": f"Bearer {token}"})
+        .status_code
+    )
+
+
+def _sign(payload: dict) -> str:
+    return jwt.encode(payload, settings.jwt_verify_secrets[0], algorithm=settings.jwt_algorithm)
+
+
+def test_minted_service_token_is_accepted_under_enforcement() -> None:
+    token = create_service_access_token("service:vi-app", "vi-app", ["market:read"], 5)
+    principal = decode_access_token(token)
+    assert principal.client_id == "vi-app"
+
+
+@pytest.mark.parametrize("missing", ["iss", "aud"])
+def test_token_without_iss_or_aud_is_401_under_enforcement(missing: str) -> None:
+    payload = _now_claims()
+    del payload[missing]
+    assert _quotes(_sign(payload)) == 401
+
+
+@pytest.mark.parametrize(("claim", "value"), [("iss", "someone-else"), ("aud", "other-audience")])
+def test_token_for_another_issuer_or_audience_is_401(claim: str, value: str) -> None:
+    assert _quotes(_sign(_now_claims(**{claim: value}))) == 401

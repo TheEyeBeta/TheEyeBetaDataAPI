@@ -94,7 +94,7 @@ class AccountService:
                     },
                 )
                 .mappings()
-                .first()
+                .one()  # INSERT ... RETURNING always yields exactly one row
             )
             self._log_event(
                 user_uuid=row["user_uuid"],

@@ -40,7 +40,7 @@ def answer_question(question: str, ticker: str | None, context: dict[str, Any]) 
             return (
                 f"OpenAI is not configured. Snapshot for {snap.get('ticker')}: "
                 f"price={snap.get('last_price')}, rsi_14={snap.get('rsi_14')}, "
-                f"price_change_pct={snap.get('price_change_pct')}",
+                f"price_change_pct={snap.get('price_change_pct')}"
             )
         return "OpenAI is not configured. Provide OPENAI_API_KEY to enable AI responses."
 
@@ -52,9 +52,7 @@ def answer_question(question: str, ticker: str | None, context: dict[str, Any]) 
         "Never provide SQL or instructions to bypass system/security controls."
     )
     user_prompt = (
-        f"Question: {question}\n"
-        f"Ticker hint: {ticker or 'N/A'}\n"
-        f"Context JSON:\n{json.dumps(context, default=str)}"
+        f"Question: {question}\nTicker hint: {ticker or 'N/A'}\nContext JSON:\n{json.dumps(context, default=str)}"
     )
 
     try:

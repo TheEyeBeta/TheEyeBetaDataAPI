@@ -33,13 +33,26 @@ class _FakeRefreshRepo:
         }
         return token_id
 
+    def revoke_family(self, token_id) -> None:  # noqa: ANN001
+        by_id = {row["id"]: row for row in self.rows.values()}
+        current = by_id.get(token_id)
+        while current is not None:
+            if current["revoked_at"] is None:
+                current["revoked_at"] = datetime.now(UTC)
+            current = by_id.get(current["replaced_by"])
+
+    def _reject_revoked(self, row: dict) -> None:
+        if row["replaced_by"] is not None:
+            self.revoke_family(row["id"])
+        raise AuthenticationError("Refresh token already used or revoked")
+
     def lookup_active(self, presented_raw_token: str) -> RefreshTokenRecord:
         key = hash_refresh_token(presented_raw_token)
         row = self.rows.get(key)
         if not row:
             raise AuthenticationError("Invalid refresh token")
         if row["revoked_at"] is not None:
-            raise AuthenticationError("Refresh token already used or revoked")
+            self._reject_revoked(row)
         if row["expires_at"] <= datetime.now(UTC):
             raise AuthenticationError("Refresh token expired")
         return RefreshTokenRecord(
@@ -68,7 +81,7 @@ class _FakeRefreshRepo:
         if not row:
             raise AuthenticationError("Invalid refresh token")
         if row["revoked_at"] is not None:
-            raise AuthenticationError("Refresh token already used or revoked")
+            self._reject_revoked(row)
         if row["expires_at"] <= datetime.now(UTC):
             raise AuthenticationError("Refresh token expired")
         new_id = uuid4()
@@ -92,6 +105,22 @@ class _FakeRefreshRepo:
             scopes=new_scopes,
             expires_at=new_expires_at,
         )
+
+
+def _client(client_id: str = "vi-app", *, enabled: bool = True) -> ServiceClient:
+    return ServiceClient(client_id=client_id, scopes=["market:read"], short_lived_tokens_enabled=enabled)
+
+
+def _seed(
+    fake: _FakeRefreshRepo, raw: str, *, client_id: str = "vi-app", subject: str | None = None, days: int = 1
+) -> None:
+    fake.insert(
+        subject=subject or f"service:{client_id}",
+        client_id=client_id,
+        raw_token=raw,
+        scopes=["market:read"],
+        expires_at=datetime.now(UTC) + timedelta(days=days),
+    )
 
 
 def _patch_repo(monkeypatch: pytest.MonkeyPatch, fake: _FakeRefreshRepo) -> None:
@@ -125,24 +154,20 @@ def test_opted_in_client_gets_short_lived_and_refresh(monkeypatch: pytest.Monkey
         scopes=["market:read", "advisor:read"],
         short_lived_tokens_enabled=True,
     )
-    monkeypatch.setattr(
-        "app.services.auth_token_service.get_service_client",
-        lambda client_id, session=None: client,
-    )
     service = AuthTokenService(session=object())  # type: ignore[arg-type]
     issued = service.issue_service_token(client, ["market:read"])
     assert issued.refresh_token
     assert issued.expires_minutes == settings.short_lived_access_token_minutes
     assert len(fake.rows) == 1
 
-    refreshed = service.refresh(issued.refresh_token)
+    refreshed = service.refresh(issued.refresh_token, client)
     assert refreshed.refresh_token != issued.refresh_token
     assert refreshed.access_token
     assert refreshed.expires_minutes == settings.short_lived_access_token_minutes
     assert refreshed.scopes == ["market:read"]
 
     with pytest.raises(AuthenticationError, match="already used|revoked"):
-        service.refresh(issued.refresh_token)
+        service.refresh(issued.refresh_token, client)
 
 
 def test_refresh_intersects_live_scopes(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -161,12 +186,8 @@ def test_refresh_intersects_live_scopes(monkeypatch: pytest.MonkeyPatch) -> None
         scopes=["market:read"],  # advisor:read removed
         short_lived_tokens_enabled=True,
     )
-    monkeypatch.setattr(
-        "app.services.auth_token_service.get_service_client",
-        lambda client_id, session=None: live,
-    )
     service = AuthTokenService(session=object())  # type: ignore[arg-type]
-    refreshed = service.refresh(raw)
+    refreshed = service.refresh(raw, live)
     assert refreshed.scopes == ["market:read"]
 
 
@@ -186,13 +207,9 @@ def test_refresh_rejects_when_short_lived_disabled(monkeypatch: pytest.MonkeyPat
         scopes=["market:read"],
         short_lived_tokens_enabled=False,
     )
-    monkeypatch.setattr(
-        "app.services.auth_token_service.get_service_client",
-        lambda client_id, session=None: live,
-    )
     service = AuthTokenService(session=object())  # type: ignore[arg-type]
     with pytest.raises(AuthenticationError, match="disabled"):
-        service.refresh(raw)
+        service.refresh(raw, live)
     assert fake.rows[hash_refresh_token(raw)]["revoked_at"] is not None
 
 
@@ -208,14 +225,80 @@ def test_revoked_refresh_token_rejected(monkeypatch: pytest.MonkeyPatch) -> None
         expires_at=datetime.now(UTC) + timedelta(days=1),
     )
     fake.rows[hash_refresh_token(raw)]["revoked_at"] = datetime.now(UTC)
-    monkeypatch.setattr(
-        "app.services.auth_token_service.get_service_client",
-        lambda client_id, session=None: ServiceClient(
-            client_id="vi-app",
-            scopes=["market:read"],
-            short_lived_tokens_enabled=True,
-        ),
-    )
     service = AuthTokenService(session=object())  # type: ignore[arg-type]
     with pytest.raises(AuthenticationError):
-        service.refresh(raw)
+        service.refresh(raw, _client())
+
+
+# ---------------------------------------------------------------------------
+# Family / binding semantics (the SQL repository is exercised the same way in
+# tests/integration/test_iam_postgres.py).
+# ---------------------------------------------------------------------------
+
+
+def test_reuse_of_rotated_token_revokes_whole_family(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake = _FakeRefreshRepo()
+    _patch_repo(monkeypatch, fake)
+    service = AuthTokenService(session=object())  # type: ignore[arg-type]
+    first = "family-token-0000000000000000"
+    _seed(fake, first)
+    second = service.refresh(first, _client()).refresh_token
+    third = service.refresh(second, _client()).refresh_token
+
+    with pytest.raises(AuthenticationError, match="already used"):
+        service.refresh(first, _client())  # replay of the oldest token
+
+    assert all(row["revoked_at"] is not None for row in fake.rows.values())
+    with pytest.raises(AuthenticationError):
+        service.refresh(third, _client())  # legitimate holder is cut off too
+
+
+def test_explicitly_revoked_token_does_not_touch_other_families(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake = _FakeRefreshRepo()
+    _patch_repo(monkeypatch, fake)
+    service = AuthTokenService(session=object())  # type: ignore[arg-type]
+    revoked, other = "revoked-token-000000000000000", "other-token-00000000000000000"
+    _seed(fake, revoked)
+    _seed(fake, other)
+    fake.rows[hash_refresh_token(revoked)]["revoked_at"] = datetime.now(UTC)
+    with pytest.raises(AuthenticationError, match="already used or revoked"):
+        service.refresh(revoked, _client())
+    assert service.refresh(other, _client()).refresh_token
+
+
+def test_expired_token_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake = _FakeRefreshRepo()
+    _patch_repo(monkeypatch, fake)
+    raw = "expired-token-000000000000000"
+    _seed(fake, raw, days=-1)
+    with pytest.raises(AuthenticationError, match="expired"):
+        AuthTokenService(session=object()).refresh(raw, _client())  # type: ignore[arg-type]
+
+
+def test_token_presented_by_another_client_is_rejected_and_family_revoked(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake = _FakeRefreshRepo()
+    _patch_repo(monkeypatch, fake)
+    raw = "client-bound-token-0000000000"
+    _seed(fake, raw, client_id="vi-app")
+    with pytest.raises(AuthenticationError, match="^Invalid refresh token$"):
+        AuthTokenService(session=object()).refresh(raw, _client("other-client"))  # type: ignore[arg-type]
+    assert fake.rows[hash_refresh_token(raw)]["revoked_at"] is not None
+
+
+def test_token_with_foreign_subject_is_rejected_and_family_revoked(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake = _FakeRefreshRepo()
+    _patch_repo(monkeypatch, fake)
+    raw = "subject-bound-token-000000000"
+    _seed(fake, raw, client_id="vi-app", subject="user:someone-else")
+    with pytest.raises(AuthenticationError, match="^Invalid refresh token$"):
+        AuthTokenService(session=object()).refresh(raw, _client())  # type: ignore[arg-type]
+    assert fake.rows[hash_refresh_token(raw)]["revoked_at"] is not None
+
+
+def test_refresh_route_requires_client_credentials() -> None:
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    response = TestClient(app).post("/api/v1/auth/refresh", json={"refresh_token": "x" * 32})
+    assert response.status_code == 401

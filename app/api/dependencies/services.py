@@ -66,7 +66,9 @@ def get_advisor_service(repository: MarketDataRepository = Depends(get_market_da
     return AdvisorService(repository=repository)
 
 
-def get_market_data_service(repository: MarketDataRepository = Depends(get_market_data_repository)) -> MarketDataService:
+def get_market_data_service(
+    repository: MarketDataRepository = Depends(get_market_data_repository),
+) -> MarketDataService:
     """Provide market data service."""
     return MarketDataService(repository=repository)
 

@@ -1,0 +1,33 @@
+# theeyebeta objects TheEyeBetaDataAPI reads, created by TheEyeBetaProd migrations.
+# latest_snapshots is modelled as the production worker table (see the snapshot header).
+# Keep in sync with tests/contract/test_prod_schema_contract.py::test_every_referenced_object_is_accounted_for.
+audit_cap_events
+audit_log
+corporate_actions
+dataapi_applications
+dataapi_credential_revocations
+dataapi_entitlements
+dataapi_locks
+dataapi_memberships
+dataapi_policy_versions
+dataapi_quota_windows
+dataapi_tenants
+exchanges
+fixed_income_curve_metrics
+fixed_income_signals
+fundamentals
+fundamentals_company
+ind_technical_daily
+instruments
+latest_snapshots
+macro_indicators
+market_cap_daily
+market_news
+orders
+positions
+prices_daily
+public_ticker_map
+sector_daily
+trading_calendar
+trask_components
+worker_heartbeats

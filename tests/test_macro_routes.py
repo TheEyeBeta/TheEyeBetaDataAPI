@@ -20,7 +20,7 @@ from app.schemas.macro import (
     MacroSeriesSummary,
 )
 
-MACRO_PREFIX = "/v1/macro"
+MACRO_PREFIX = "/api/v1/macro"
 
 
 def _make_user_token(scopes: list[str]) -> str:
@@ -150,9 +150,7 @@ def test_macro_latest_ok() -> None:
     app.dependency_overrides[get_macro_service] = lambda: _FakeMacroService()
     client = TestClient(app)
     token = _make_user_token(scopes=["market:read"])
-    response = client.get(
-        f"{MACRO_PREFIX}/latest?codes=DGS10", headers={"Authorization": f"Bearer {token}"}
-    )
+    response = client.get(f"{MACRO_PREFIX}/latest?codes=DGS10", headers={"Authorization": f"Bearer {token}"})
     assert response.status_code == 200
     assert response.json()["observations"][0]["code"] == "DGS10"
     app.dependency_overrides.clear()
@@ -177,11 +175,17 @@ def test_macro_regime_not_found_when_empty() -> None:
     app.dependency_overrides.clear()
 
 
-def test_macro_legacy_api_v1_alias_ok() -> None:
+def test_macro_legacy_v1_alias_ok() -> None:
     app.dependency_overrides[get_macro_service] = lambda: _FakeMacroService()
     client = TestClient(app)
     token = _make_user_token(scopes=["market:read"])
-    response = client.get("/api/v1/macro/series", headers={"Authorization": f"Bearer {token}"})
+    response = client.get("/v1/macro/series", headers={"Authorization": f"Bearer {token}"})
     assert response.status_code == 200
     assert response.json()["series"][0]["code"] == "DGS10"
     app.dependency_overrides.clear()
+
+
+def test_macro_openapi_documents_api_v1_path_only() -> None:
+    paths = app.openapi()["paths"]
+    assert "/api/v1/macro/series" in paths
+    assert not any(path.startswith("/v1/macro") for path in paths)

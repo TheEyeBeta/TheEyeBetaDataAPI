@@ -130,6 +130,7 @@ class AdminAuditEvent:
 
 # ── Reference / lookup ────────────────────────────────────────────────────────
 
+
 @dataclass(frozen=True)
 class Country:
     country_code: str
@@ -176,6 +177,7 @@ class TradingCalendarDay:
 
 
 # ── Ticker detail ─────────────────────────────────────────────────────────────
+
 
 @dataclass(frozen=True)
 class TickerDetail:
@@ -249,6 +251,7 @@ class CompanyFundamentals:
 
 # ── Financial statements ──────────────────────────────────────────────────────
 
+
 @dataclass(frozen=True)
 class IncomeStatementQ:
     period_end: date | None
@@ -312,6 +315,7 @@ class QualityQ:
 
 
 # ── Indicator time-series ─────────────────────────────────────────────────────
+
 
 @dataclass(frozen=True)
 class TechnicalDay:
@@ -389,6 +393,7 @@ class ReturnsDay:
 
 # ── News ──────────────────────────────────────────────────────────────────────
 
+
 @dataclass(frozen=True)
 class TickerNewsItem:
     news_id: int
@@ -402,6 +407,7 @@ class TickerNewsItem:
 
 
 # ── Admin-only ────────────────────────────────────────────────────────────────
+
 
 @dataclass(frozen=True)
 class EtlJobState:
@@ -433,6 +439,7 @@ class PriceTick:
 
 
 # ── Macro ─────────────────────────────────────────────────────────────────────
+
 
 @dataclass(frozen=True)
 class MacroSeriesInfo:

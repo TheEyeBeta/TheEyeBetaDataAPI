@@ -5,14 +5,14 @@ from __future__ import annotations
 from fastapi import Depends, Header, Request
 
 from app.auth.models import Principal, PrincipalType
-from app.auth.service_clients import get_service_client, validate_mtls_subject
 from app.auth.scopes import has_required_scopes
+from app.auth.service_clients import get_service_client, validate_mtls_subject
 from app.auth.tokens import decode_access_token
 from app.auth.user_api_keys import is_user_api_key, verify_user_api_key
 from app.core.client_ip import get_client_ip
 from app.core.config import settings
-from app.domain.errors import AuthenticationError, AuthorizationError
 from app.db.session import get_db_session
+from app.domain.errors import AuthenticationError, AuthorizationError
 from app.policy.repository import enforce_policy
 
 
